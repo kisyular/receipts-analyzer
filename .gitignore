@@ -4,3 +4,7 @@ uploads/
 receipt_images/
 app.log
 app.db
+*.pyc
+__pycache__/
+.env.local
+.azure/

@@ -63,6 +63,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Create necessary directories before mounting static files
+if not os.path.exists("uploads"):
+    print("Creating uploads folder")
+    os.makedirs("uploads")
+if not os.path.exists("receipt_images"):
+    print("Creating receipt_images folder")
+    os.makedirs("receipt_images")
+
 # Serve static files (CSS, JS, images)
 app.mount("/static", StaticFiles(directory="."), name="static")
 
@@ -179,7 +187,7 @@ def save_upload_file(upload_file: UploadFile) -> str:
     upload_dir = Path("uploads")
     upload_dir.mkdir(exist_ok=True)
     
-    file_extension = Path(upload_file.filename).suffix
+    file_extension = Path(upload_file.filename or "").suffix
     file_name = f"{uuid.uuid4()}{file_extension}"
     file_path = upload_dir / file_name
     
@@ -208,7 +216,7 @@ def save_receipt_image(upload_file: UploadFile, receipt_id: str) -> str:
     images_dir = Path("receipt_images")
     images_dir.mkdir(exist_ok=True)
     
-    file_extension = Path(upload_file.filename).suffix
+    file_extension = Path(upload_file.filename or "").suffix
     file_name = f"{receipt_id}{file_extension}"
     file_path = images_dir / file_name
     
