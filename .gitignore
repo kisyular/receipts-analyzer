@@ -1,0 +1,6 @@
+.env
+images/
+uploads/
+receipt_images/
+app.log
+app.db

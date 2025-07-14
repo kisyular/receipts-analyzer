@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Receipt Scanner Pro</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%);
+            min-height: 100vh;
+        }
+        .upload-area {
+            border: 2px dashed #0d6efd;
+            border-radius: 1.5rem;
+            padding: 3rem;
+            text-align: center;
+            background: #fff;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        .upload-area.dragover {
+            border-color: #6610f2;
+            background: #f0f4ff;
+        }
+        .preview-image {
+            max-width: 100%;
+            max-height: 350px;
+            border-radius: 1rem;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+        .receipt-card {
+            border-radius: 1.5rem;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            background: #fff;
+            margin-bottom: 1.5rem;
+        }
+        .modal-img {
+            max-width: 100%;
+            border-radius: 1rem;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-5">
+        <div class="row justify-content-center mb-4">
+            <div class="col-lg-8">
+                <nav class="navbar navbar-light bg-white rounded-4 shadow-sm mb-4 p-3">
+                    <div class="container-fluid justify-content-between">
+                        <span class="navbar-brand mb-0 h1"><i class="fas fa-receipt me-2"></i>Receipt Scanner Pro</span>
+                        <ul class="nav nav-pills">
+                            <li class="nav-item">
+                                <button class="nav-link active" id="scan-tab" type="button"><i class="fas fa-camera me-2"></i>Scan Receipt</button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link" id="history-tab" type="button"><i class="fas fa-history me-2"></i>Saved Receipts</button>
+                            </li>
+                        </ul>
+                    </div>
+                </nav>
+            </div>
+        </div>
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div id="scan-content">
+                    <div id="uploadSection">
+                        <div class="upload-area mb-4" id="uploadArea">
+                            <div class="mb-3">
+                                <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
+                                <h4>Upload Receipt</h4>
+                                <p class="text-muted">Drag & drop your receipt image or use the buttons below</p>
+                            </div>
+                            <div class="d-flex flex-column flex-sm-row justify-content-center gap-3 mb-3">
+                                <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                                    <i class="fas fa-upload me-2"></i>Choose File
+                                </button>
+                                <button class="btn btn-outline-secondary" id="cameraBtn">
+                                    <i class="fas fa-camera me-2"></i>Take Photo
+                                </button>
+                            </div>
+                            <input type="file" id="fileInput" accept="image/*" style="display: none;">
+                            <div class="mt-3 text-muted small">
+                                Supports: JPG, PNG, BMP, TIFF, HEIF<br>Max size: 10MB
+                            </div>
+                        </div>
+                    </div>
+                    <div id="previewSection" style="display: none;">
+                        <div class="text-center mb-3">
+                            <img id="previewImage" class="preview-image" alt="Receipt preview">
+                        </div>
+                        <div class="d-flex flex-column flex-sm-row justify-content-center gap-3">
+                            <button class="btn btn-success" onclick="analyzeReceipt()">
+                                <i class="fas fa-magic me-2"></i>Analyze Receipt
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="resetUpload()">
+                                <i class="fas fa-edit me-2"></i>Change Image
+                            </button>
+                        </div>
+                    </div>
+                    <div id="loadingSection" style="display: none;">
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
+                            <h5>Analyzing Receipt...</h5>
+                            <p class="text-muted">Please wait while we process your image</p>
+                        </div>
+                    </div>
+                    <div id="resultsSection" style="display: none;">
+                        <div class="alert alert-success text-center">
+                            <i class="fas fa-check-circle fa-2x me-2"></i>Analysis Complete!
+                        </div>
+                        <div id="resultsContent"></div>
+                        <div class="text-center mt-4">
+                            <button class="btn btn-primary" onclick="resetUpload()">
+                                <i class="fas fa-plus me-2"></i>Scan Another Receipt
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="history-content" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5><i class="fas fa-history me-2"></i>Saved Receipts</h5>
+                        <button class="btn btn-outline-primary btn-sm" onclick="loadReceipts()">
+                            <i class="fas fa-sync me-2"></i>Refresh
+                        </button>
+                    </div>
+                    <div id="receiptsList">
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
+                            <p>Loading receipts...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="position-fixed top-0 end-0 p-3" style="z-index: 1100;"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const API_URL = window.location.origin;
+        let currentFile = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            setupEventListeners();
+            loadReceipts();
+        });
+
+        function setupEventListeners() {
+            document.getElementById('fileInput').addEventListener('change', function(e) {
+                if (e.target.files[0]) {
+                    handleFileSelect(e.target.files[0]);
+                }
+            });
+            const uploadArea = document.getElementById('uploadArea');
+            uploadArea.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            uploadArea.addEventListener('dragleave', function() {
+                uploadArea.classList.remove('dragover');
+            });
+            uploadArea.addEventListener('drop', function(e) {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                if (e.dataTransfer.files[0]) {
+                    handleFileSelect(e.dataTransfer.files[0]);
+                }
+            });
+            document.getElementById('scan-tab').addEventListener('click', function() {
+                switchTab('scan');
+            });
+            document.getElementById('history-tab').addEventListener('click', function() {
+                switchTab('history');
+                loadReceipts();
+            });
+        }
+        function switchTab(tabName) {
+            document.getElementById('scan-tab').classList.remove('active');
+            document.getElementById('history-tab').classList.remove('active');
+            document.getElementById('scan-content').style.display = 'none';
+            document.getElementById('history-content').style.display = 'none';
+            if (tabName === 'scan') {
+                document.getElementById('scan-tab').classList.add('active');
+                document.getElementById('scan-content').style.display = '';
+            } else {
+                document.getElementById('history-tab').classList.add('active');
+                document.getElementById('history-content').style.display = '';
+            }
+        }
+        function handleFileSelect(file) {
+            if (!file.type.startsWith('image/')) {
+                showToast('Please select an image file', 'danger');
+                return;
+            }
+            if (file.size > 10 * 1024 * 1024) {
+                showToast('File size must be less than 10MB', 'danger');
+                return;
+            }
+            currentFile = file;
+            showPreview(file);
+        }
+        function showPreview(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('previewImage').src = e.target.result;
+                showSection('previewSection');
+            };
+            reader.readAsDataURL(file);
+        }
+        async function analyzeReceipt() {
+            if (!currentFile) {
+                showToast('No image selected', 'danger');
+                return;
+            }
+            showSection('loadingSection');
+            try {
+                const formData = new FormData();
+                formData.append('file', currentFile);
+                const response = await fetch(`${API_URL}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Failed to analyze receipt');
+                }
+                const result = await response.json();
+                displayResults(result);
+                showToast('Receipt analyzed successfully!', 'success');
+            } catch (error) {
+                showToast(error.message || 'Failed to analyze receipt', 'danger');
+                showSection('uploadSection');
+            }
+        }
+        function displayResults(data) {
+            const resultsContent = document.getElementById('resultsContent');
+            const merchant = data.merchant_name || 'N/A';
+            const date = data.transaction_date ? new Date(data.transaction_date).toLocaleDateString() : 'N/A';
+            const total = data.total ? `$${data.total.toFixed(2)}` : 'N/A';
+            const confidence = data.confidence_score ? `${(data.confidence_score * 100).toFixed(1)}%` : 'N/A';
+            let html = `
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <div class="card card-body">
+                            <strong>Merchant:</strong> <span class="float-end">${merchant}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card card-body">
+                            <strong>Date:</strong> <span class="float-end">${date}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card card-body">
+                            <strong>Total:</strong> <span class="float-end text-success fw-bold">${total}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card card-body">
+                            <strong>Confidence:</strong> <span class="float-end">${confidence}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            if (data.items && data.items.length > 0) {
+                html += `
+                    <h6 class="mb-2">Items</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Description</th>
+                                    <th class="text-end">Quantity</th>
+                                    <th class="text-end">Unit Price</th>
+                                    <th class="text-end">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.items.map(item => `
+                                    <tr>
+                                        <td>${item.description || 'Unknown'}</td>
+                                        <td class="text-end">${item.quantity || 1}</td>
+                                        <td class="text-end">$${(item.unit_price || 0).toFixed(2)}</td>
+                                        <td class="text-end">$${(item.total_price || 0).toFixed(2)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            resultsContent.innerHTML = html;
+            showSection('resultsSection');
+        }
+        async function loadReceipts() {
+            const receiptsList = document.getElementById('receiptsList');
+            try {
+                receiptsList.innerHTML = `
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
+                        <p>Loading receipts...</p>
+                    </div>
+                `;
+                const response = await fetch(`${API_URL}/documents`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const receipts = await response.json();
+                displayReceipts(receipts);
+            } catch (error) {
+                receiptsList.innerHTML = `
+                    <div class="alert alert-danger text-center">
+                        <i class="fas fa-exclamation-triangle me-2"></i>Failed to load receipts. Please try again.
+                    </div>
+                `;
+            }
+        }
+        function displayReceipts(receipts) {
+            const receiptsList = document.getElementById('receiptsList');
+            if (!receipts || receipts.length === 0) {
+                receiptsList.innerHTML = `
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-receipt fa-3x mb-3"></i>
+                        <h5>No saved receipts</h5>
+                        <p>Scan your first receipt to get started!</p>
+                    </div>
+                `;
+                return;
+            }
+            const receiptsHtml = receipts.map(receipt => {
+                const merchant = receipt.merchant_name || 'Unknown Merchant';
+                const date = receipt.transaction_date ? new Date(receipt.transaction_date).toLocaleDateString() : 'Unknown Date';
+                const total = receipt.total ? `$${receipt.total.toFixed(2)}` : '$0.00';
+                const confidence = receipt.confidence_score ? `${(receipt.confidence_score * 100).toFixed(1)}%` : 'N/A';
+                return `
+                    <div class="receipt-card p-4 mb-3">
+                        <div class="row align-items-center">
+                            <div class="col-md-2 text-center mb-3 mb-md-0">
+                                ${receipt.image_url ? `<img src="${API_URL}${receipt.image_url}" alt="Receipt" class="img-fluid rounded shadow-sm" style="max-height: 80px;">` : `<i class="fas fa-receipt fa-2x text-secondary"></i>`}
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="mb-1">${merchant}</h6>
+                                <small class="text-muted">${date} • Confidence: ${confidence}</small>
+                            </div>
+                            <div class="col-md-2 text-end">
+                                <span class="fw-bold text-success">${total}</span>
+                            </div>
+                            <div class="col-md-2 text-end d-flex flex-column gap-2">
+                                <button class="btn btn-outline-primary btn-sm mb-1" onclick="viewReceiptDetails('${receipt.id}')">
+                                    <i class="fas fa-eye me-1"></i>Details
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm" onclick="deleteReceipt('${receipt.id}')">
+                                    <i class="fas fa-trash me-1"></i>Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            receiptsList.innerHTML = receiptsHtml;
+        }
+        async function viewReceiptDetails(receiptId) {
+            try {
+                const response = await fetch(`${API_URL}/documents/${receiptId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const receipt = await response.json();
+                showReceiptModal(receipt);
+            } catch (error) {
+                showToast('Failed to load receipt details', 'danger');
+            }
+        }
+        function showReceiptModal(receipt) {
+            const merchant = receipt.merchant_name || 'N/A';
+            const date = receipt.transaction_date ? new Date(receipt.transaction_date).toLocaleDateString() : 'N/A';
+            const total = receipt.total ? `$${receipt.total.toFixed(2)}` : 'N/A';
+            const confidence = receipt.confidence_score ? `${(receipt.confidence_score * 100).toFixed(1)}%` : 'N/A';
+            let itemsHtml = '';
+            if (receipt.items && receipt.items.length > 0) {
+                itemsHtml = `
+                    <h6 class="mb-2">Items</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Description</th>
+                                    <th class="text-end">Quantity</th>
+                                    <th class="text-end">Unit Price</th>
+                                    <th class="text-end">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${receipt.items.map(item => `
+                                    <tr>
+                                        <td>${item.description || 'Unknown'}</td>
+                                        <td class="text-end">${item.quantity || 1}</td>
+                                        <td class="text-end">$${(item.unit_price || 0).toFixed(2)}</td>
+                                        <td class="text-end">$${(item.total_price || 0).toFixed(2)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            const modalHtml = `
+                <div class="modal fade" id="receiptModal" tabindex="-1" aria-labelledby="receiptModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="receiptModalLabel"><i class="fas fa-receipt me-2"></i>Receipt Details</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="row g-4 mb-3">
+                                    <div class="col-md-5 text-center">
+                                        ${receipt.image_url ? `<img src="${API_URL}${receipt.image_url}" alt="Receipt" class="modal-img mb-3">` : `<i class="fas fa-receipt fa-3x text-secondary"></i>`}
+                                    </div>
+                                    <div class="col-md-7">
+                                        <div class="mb-2"><strong>Merchant:</strong> ${merchant}</div>
+                                        <div class="mb-2"><strong>Date:</strong> ${date}</div>
+                                        <div class="mb-2"><strong>Total:</strong> <span class="text-success fw-bold">${total}</span></div>
+                                        <div class="mb-2"><strong>Confidence:</strong> ${confidence}</div>
+                                        <div class="mb-2"><strong>Receipt ID:</strong> <span class="text-muted small">${receipt.id}</span></div>
+                                    </div>
+                                </div>
+                                ${itemsHtml}
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            const existingModal = document.getElementById('receiptModal');
+            if (existingModal) existingModal.remove();
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            const modal = new bootstrap.Modal(document.getElementById('receiptModal'));
+            modal.show();
+            document.getElementById('receiptModal').addEventListener('hidden.bs.modal', function() {
+                this.remove();
+            });
+        }
+        async function deleteReceipt(receiptId) {
+            if (!confirm('Are you sure you want to delete this receipt?')) return;
+            try {
+                const response = await fetch(`${API_URL}/documents/${receiptId}`, {
+                    method: 'DELETE'
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                showToast('Receipt deleted successfully', 'success');
+                loadReceipts();
+            } catch (error) {
+                showToast('Failed to delete receipt', 'danger');
+            }
+        }
+        function showSection(sectionId) {
+            document.getElementById('uploadSection').style.display = 'none';
+            document.getElementById('previewSection').style.display = 'none';
+            document.getElementById('loadingSection').style.display = 'none';
+            document.getElementById('resultsSection').style.display = 'none';
+            document.getElementById(sectionId).style.display = '';
+        }
+        function resetUpload() {
+            currentFile = null;
+            document.getElementById('fileInput').value = '';
+            showSection('uploadSection');
+        }
+        function showToast(message, type = 'info') {
+            const toastContainer = document.getElementById('toastContainer');
+            const toastId = 'toast-' + Date.now();
+            const typeClass = type === 'success' ? 'bg-success text-white' : type === 'danger' ? 'bg-danger text-white' : 'bg-primary text-white';
+            const toast = document.createElement('div');
+            toast.id = toastId;
+            toast.className = `toast align-items-center ${typeClass}`;
+            toast.setAttribute('role', 'alert');
+            toast.setAttribute('aria-live', 'assertive');
+            toast.setAttribute('aria-atomic', 'true');
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+            `;
+            toastContainer.appendChild(toast);
+            const bsToast = new bootstrap.Toast(toast, { delay: 4000 });
+            bsToast.show();
+            toast.addEventListener('hidden.bs.toast', function() {
+                toast.remove();
+            });
+        }
+    </script>
+    <!-- Camera Modal -->
+    <script>
+        let cameraStream = null;
+        let cameraModal = null;
+        function openCameraModal() {
+            cameraModal = document.createElement('div');
+            cameraModal.className = 'modal fade';
+            cameraModal.id = 'cameraModal';
+            cameraModal.tabIndex = -1;
+            cameraModal.innerHTML = `
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title"><i class="fas fa-camera me-2"></i>Take Photo</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body text-center">
+                            <video id="cameraVideo" autoplay playsinline class="w-100 rounded mb-3" style="background: #000; max-height: 300px;"></video>
+                            <div class="d-flex justify-content-center gap-2">
+                                <button id="captureBtn" class="btn btn-primary"><i class="fas fa-camera me-2"></i>Capture</button>
+                                <button id="closeCameraBtn" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(cameraModal);
+            const modal = new bootstrap.Modal(cameraModal);
+            modal.show();
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                .then(stream => {
+                    cameraStream = stream;
+                    document.getElementById('cameraVideo').srcObject = stream;
+                })
+                .catch(() => {
+                    showToast('Unable to access camera', 'danger');
+                    closeCameraModal();
+                });
+            document.getElementById('closeCameraBtn').onclick = closeCameraModal;
+            document.getElementById('captureBtn').onclick = capturePhoto;
+            cameraModal.addEventListener('hidden.bs.modal', closeCameraModal);
+        }
+        function closeCameraModal() {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+            if (cameraModal) {
+                cameraModal.remove();
+                cameraModal = null;
+            }
+        }
+        function capturePhoto() {
+            const video = document.getElementById('cameraVideo');
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            canvas.toBlob(blob => {
+                const file = new File([blob], 'camera-photo.jpg', { type: 'image/jpeg' });
+                closeCameraModal();
+                handleCameraFile(file);
+            }, 'image/jpeg', 0.95);
+        }
+        async function handleCameraFile(file) {
+            currentFile = file;
+            showPreview(file);
+        }
+        document.getElementById('cameraBtn').onclick = openCameraModal;
+    </script>
+</body>
+</html> 
