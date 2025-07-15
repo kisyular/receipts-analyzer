@@ -1,0 +1,3 @@
+language: python
+pythonVersion: "3.9"
+startupCommand: python startup.py

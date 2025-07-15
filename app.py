@@ -367,6 +367,17 @@ async def upload_document(
         
         # Extract data from first receipt
         receipt_data = extract_receipt_data(receipts.documents[0])
+
+        # If all key fields are missing, likely not a receipt
+        if (
+            not receipt_data.get("transaction_date") and
+            not receipt_data.get("total") and
+            (not receipt_data.get("items") or len(receipt_data.get("items", [])) == 0)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No receipt found in the image. Please ensure the image contains a clear, readable receipt."
+            )
         
         # Generate a unique ID for the receipt
         receipt_id = str(uuid.uuid4())
