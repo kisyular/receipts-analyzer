@@ -6,7 +6,7 @@ Core operations: Upload, Read, Save, View, Delete documents
 import os
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, date
 from typing import List, Optional
 from pathlib import Path
 
@@ -28,10 +28,9 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, R
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, String, Float, DateTime, Text, Integer, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from pydantic import BaseModel, Field
+from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
 from dotenv import load_dotenv
 
 from azure.core.credentials import AzureKeyCredential
@@ -40,11 +39,36 @@ from azure.ai.documentintelligence import DocumentIntelligenceClient
 # Load environment variables
 load_dotenv()
 
+# Lifespan context manager for MongoDB connection
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for MongoDB connection"""
+    # Startup
+    try:
+        # Test the connection with longer timeout
+        logger.info("Testing MongoDB connection...")
+        await mongodb_client.admin.command('ping', serverSelectionTimeoutMS=30000)
+        logger.info("Successfully connected to MongoDB")
+    except Exception as e:
+        logger.error(f"Failed to connect to MongoDB: {e}")
+        logger.error("Please check your network connection and Cosmos DB settings")
+        # Don't raise here - let the app start but log the error
+        # The app can still work if the connection is established later
+    
+    yield
+    
+    # Shutdown
+    mongodb_client.close()
+    logger.info("MongoDB connection closed")
+
 # FastAPI app initialization
 app = FastAPI(
     title="Receipt Analysis API",
     description="Simple API for analyzing receipts using Azure Document Intelligence",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS middleware for frontend integration
@@ -77,82 +101,77 @@ app.mount("/static", StaticFiles(directory="."), name="static")
 # Serve receipt images
 app.mount("/receipt_images", StaticFiles(directory="receipt_images"), name="receipt_images")
 
-# Database setup
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./receipts.db")
+# MongoDB setup
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is required")
 
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-else:
-    engine = create_engine(DATABASE_URL)
+# MongoDB client
+mongodb_client = AsyncIOMotorClient(DATABASE_URL)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+# Extract database name from connection string or use default
+from urllib.parse import urlparse, parse_qs
+import re
 
-# Simplified Database Models
-class Receipt(Base):
-    __tablename__ = "receipts"
-    
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    filename = Column(String, nullable=False)
-    image_path = Column(String)  # Store path to saved image
-    merchant_name = Column(String)
-    transaction_date = Column(DateTime)
-    total = Column(Float)
-    subtotal = Column(Float)  # New field
-    tax_amount = Column(Float)  # New field
-    receipt_type = Column(String)  # Receipt type (Meal, Gas, etc.)
-    country_region = Column(String)  # Country/region where receipt was issued
-    confidence_score = Column(Float)
-    raw_data = Column(Text)  # Store full Azure response as JSON
-    created_at = Column(DateTime, default=datetime.utcnow)
+# Debug: Log the connection string (without password)
+parsed_url = urlparse(DATABASE_URL)
+debug_url = DATABASE_URL.replace(parsed_url.password, '***') if parsed_url.password else DATABASE_URL
+logger.info(f"Connecting to MongoDB with URL: {debug_url}")
+logger.info(f"Parsed URL - path: '{parsed_url.path}', netloc: '{parsed_url.netloc}'")
 
-class ReceiptItem(Base):
-    __tablename__ = "receipt_items"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    receipt_id = Column(String, nullable=False)
-    description = Column(String)
-    quantity = Column(Float)
-    unit_price = Column(Float)
-    total_price = Column(Float)
-    confidence = Column(Float)
+# Try multiple methods to extract database name
+database_name = None
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+# Method 1: Try to extract from path
+if parsed_url.path:
+    database_name = parsed_url.path.strip('/')
+    logger.info(f"Database name from path: '{database_name}'")
 
-# Check if new columns exist, if not add them (for existing databases)
-def migrate_database():
-    """Add new columns to existing receipts table if they don't exist"""
-    try:
-        with engine.connect() as conn:
-            # Get existing columns
-            result = conn.execute(text("PRAGMA table_info(receipts)"))
-            existing_columns = [row[1] for row in result.fetchall()]
-            
-            # Define new columns to add
-            new_columns = [
-                ("image_path", "TEXT"),
-                ("subtotal", "REAL"),
-                ("tax_amount", "REAL"),
-                ("receipt_type", "TEXT"),
-                ("country_region", "TEXT")
-            ]
-            
-            # Add missing columns
-            for column_name, column_type in new_columns:
-                if column_name not in existing_columns:
-                    conn.execute(text(f"ALTER TABLE receipts ADD COLUMN {column_name} {column_type}"))
-                    logger.info(f"Added {column_name} column to receipts table")
-                else:
-                    logger.info(f"{column_name} column already exists")
-            
-            conn.commit()
-            
-    except Exception as e:
-        logger.warning(f"Database migration check failed: {e}")
+# Method 2: Try to extract from query parameters
+if not database_name:
+    query_params = parse_qs(parsed_url.query)
+    logger.info(f"Query parameters: {query_params}")
+    for key, value in query_params.items():
+        if key.lower() in ['database', 'db', 'database_name']:
+            database_name = value[0]
+            break
 
-# Run migration
-migrate_database()
+# Method 3: Try regex extraction for MongoDB+srv URLs
+if not database_name:
+    # Pattern for MongoDB+srv URLs: mongodb+srv://user:pass@host/database?params
+    pattern = r'mongodb\+srv://[^/]+/([^?]+)'
+    match = re.search(pattern, DATABASE_URL)
+    if match:
+        database_name = match.group(1)
+        logger.info(f"Database name from regex: '{database_name}'")
+
+# Method 4: Try regex extraction for regular MongoDB URLs
+if not database_name:
+    # Pattern for regular MongoDB URLs: mongodb://user:pass@host:port/database?params
+    pattern = r'mongodb://[^/]+/([^?]+)'
+    match = re.search(pattern, DATABASE_URL)
+    if match:
+        database_name = match.group(1)
+        logger.info(f"Database name from regex (regular): '{database_name}'")
+
+# If still no database name, use default
+if not database_name:
+    database_name = 'receipts_db'
+    logger.info("No database name found, using default: receipts_db")
+
+logger.info(f"Final database name: '{database_name}'")
+
+# Validate database name
+if not database_name or database_name.strip() == '':
+    database_name = 'receipts_db'
+    logger.warning("Database name was empty, using default: receipts_db")
+
+# Get database
+database = mongodb_client[database_name]
+
+# Collections
+receipts_collection = database.receipts
+receipt_items_collection = database.receipt_items
 
 # Pydantic models for API
 class ReceiptItemResponse(BaseModel):
@@ -190,14 +209,6 @@ if not endpoint or not key:
 document_intelligence_client = DocumentIntelligenceClient(
     endpoint=endpoint, credential=AzureKeyCredential(key)
 )
-
-# Dependency to get database session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # Utility functions
 def save_upload_file(upload_file: UploadFile) -> str:
@@ -382,24 +393,35 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    try:
+        # Test MongoDB connection
+        await mongodb_client.admin.command('ping', serverSelectionTimeoutMS=5000)
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"disconnected: {str(e)}"
+    
+    return {
+        "status": "healthy", 
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "database": db_status,
+        "azure_document_intelligence": "configured" if endpoint and key else "not_configured"
+    }
 
 # 1. UPLOAD DOCUMENT
 @app.post("/upload", response_model=ReceiptResponse)
 async def upload_document(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    file: UploadFile = File(...)
 ):
     """Upload and analyze receipt document"""
     # Validate file type
-    if not file.content_type.startswith("image/"):
+    if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File must be an image (JPEG, PNG, BMP, TIFF, HEIF)"
         )
     
     # Validate file size (max 10MB for better performance)
-    if file.size > 10 * 1024 * 1024:
+    if file.size and file.size > 10 * 1024 * 1024:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File size must be less than 10MB"
@@ -407,7 +429,7 @@ async def upload_document(
     
     # Validate file extension
     allowed_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.heif', '.heic'}
-    file_extension = Path(file.filename).suffix.lower()
+    file_extension = Path(file.filename or "").suffix.lower()
     if file_extension not in allowed_extensions:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -418,7 +440,7 @@ async def upload_document(
     file_content = file.file.read()
     
     # Save uploaded file for analysis
-    file_path = save_upload_file_with_content(file_content, file.filename)
+    file_path = save_upload_file_with_content(file_content, file.filename or "unknown")
     
     try:
         # Analyze receipt
@@ -448,67 +470,78 @@ async def upload_document(
         receipt_id = str(uuid.uuid4())
         
         # Save receipt image permanently using the receipt ID
-        image_path = save_receipt_image_with_content(file_content, file.filename, receipt_id)
+        image_path = save_receipt_image_with_content(file_content, file.filename or "unknown", receipt_id)
         
-        # Save to database
-        receipt = Receipt(
-            id=receipt_id,
-            filename=file.filename,
-            image_path=image_path,
-            merchant_name=receipt_data["merchant_name"],
-            transaction_date=receipt_data["transaction_date"],
-            total=receipt_data["total"],
-            subtotal=receipt_data["subtotal"],
-            tax_amount=receipt_data["tax_amount"],
-            receipt_type=receipt_data["receipt_type"],
-            country_region=receipt_data["country_region"],
-            confidence_score=receipt_data["confidence_score"],
-            raw_data=str(receipts.documents[0].__dict__)
-        )
+        # Create receipt document for MongoDB
+        # Convert date to datetime for MongoDB compatibility
+        transaction_date = receipt_data["transaction_date"]
+        if transaction_date and isinstance(transaction_date, date) and not isinstance(transaction_date, datetime):
+            # If it's a date object (not datetime), convert to datetime
+            transaction_date = datetime.combine(transaction_date, datetime.min.time())
         
-        db.add(receipt)
-        db.commit()
-        db.refresh(receipt)
+        receipt_doc = {
+            "_id": receipt_id,
+            "filename": file.filename,
+            "image_path": image_path,
+            "merchant_name": receipt_data["merchant_name"],
+            "transaction_date": transaction_date,
+            "total": receipt_data["total"],
+            "subtotal": receipt_data["subtotal"],
+            "tax_amount": receipt_data["tax_amount"],
+            "receipt_type": receipt_data["receipt_type"],
+            "country_region": receipt_data["country_region"],
+            "confidence_score": receipt_data["confidence_score"],
+            "raw_data": str(receipts.documents[0].__dict__),
+            "created_at": datetime.now(timezone.utc)
+        }
         
-        # Save items
-        for item_data in receipt_data["items"]:
-            item = ReceiptItem(
-                receipt_id=receipt.id,
-                description=item_data.get("description"),
-                quantity=item_data.get("quantity"),
-                unit_price=item_data.get("unit_price"),
-                total_price=item_data.get("total_price")
-            )
-            db.add(item)
+        # Save receipt to MongoDB
+        await receipts_collection.insert_one(receipt_doc)
         
-        db.commit()
+        # Save items to MongoDB
+        if receipt_data["items"]:
+            items_docs = []
+            for item_data in receipt_data["items"]:
+                item_doc = {
+                    "receipt_id": receipt_id,
+                    "description": item_data.get("description"),
+                    "quantity": item_data.get("quantity"),
+                    "unit_price": item_data.get("unit_price"),
+                    "total_price": item_data.get("total_price"),
+                    "confidence": item_data.get("confidence")
+                }
+                items_docs.append(item_doc)
+            
+            if items_docs:
+                await receipt_items_collection.insert_many(items_docs)
         
         # Get items for response
-        items = db.query(ReceiptItem).filter(ReceiptItem.receipt_id == receipt.id).all()
+        items_cursor = receipt_items_collection.find({"receipt_id": receipt_id})
+        items = await items_cursor.to_list(length=None)
         
         # Generate image URL
-        image_url = f"/receipt_images/{receipt_id}{Path(file.filename).suffix}" if receipt.image_path else None
+        image_url = f"/receipt_images/{receipt_id}{Path(file.filename or "").suffix}" if receipt_doc["image_path"] else None
         
         return ReceiptResponse(
-            id=receipt.id,
-            filename=receipt.filename,
+            id=receipt_doc["_id"],
+            filename=receipt_doc["filename"],
             image_url=image_url,
-            merchant_name=receipt.merchant_name,
-            transaction_date=receipt.transaction_date,
-            total=receipt.total,
-            subtotal=receipt.subtotal,
-            tax_amount=receipt.tax_amount,
-            receipt_type=receipt.receipt_type,
-            country_region=receipt.country_region,
-            confidence_score=receipt.confidence_score,
+            merchant_name=receipt_doc["merchant_name"],
+            transaction_date=receipt_doc["transaction_date"],
+            total=receipt_doc["total"],
+            subtotal=receipt_doc["subtotal"],
+            tax_amount=receipt_doc["tax_amount"],
+            receipt_type=receipt_doc["receipt_type"],
+            country_region=receipt_doc["country_region"],
+            confidence_score=receipt_doc["confidence_score"],
             items=[ReceiptItemResponse(
-                description=item.description,
-                quantity=item.quantity,
-                unit_price=item.unit_price,
-                total_price=item.total_price,
-                confidence=item.confidence
+                description=item.get("description"),
+                quantity=item.get("quantity"),
+                unit_price=item.get("unit_price"),
+                total_price=item.get("total_price"),
+                confidence=item.get("confidence")
             ) for item in items],
-            created_at=receipt.created_at
+            created_at=receipt_doc["created_at"]
         )
         
     except HTTPException:
@@ -550,21 +583,17 @@ async def upload_document(
 @app.post("/upload_camera", response_model=ReceiptResponse)
 async def upload_camera(
     request: Request,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    file: UploadFile = File(...)
 ):
     """Upload a camera-captured image and analyze as a receipt (calls upload_document)."""
     # Call the existing upload_document function
-    return await upload_document(file=file, db=db)
+    return await upload_document(file=file)
 
 # 2. READ DOCUMENT (Get specific receipt)
 @app.get("/documents/{document_id}", response_model=ReceiptResponse)
-async def read_document(
-    document_id: str,
-    db: Session = Depends(get_db)
-):
+async def read_document(document_id: str):
     """Read specific document by ID"""
-    receipt = db.query(Receipt).filter(Receipt.id == document_id).first()
+    receipt = await receipts_collection.find_one({"_id": document_id})
     if not receipt:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -572,92 +601,90 @@ async def read_document(
         )
     
     # Get items for this receipt
-    items = db.query(ReceiptItem).filter(ReceiptItem.receipt_id == receipt.id).all()
+    items_cursor = receipt_items_collection.find({"receipt_id": document_id})
+    items = await items_cursor.to_list(length=None)
     
     # Generate image URL
-    image_url = f"/receipt_images/{receipt.id}{Path(receipt.filename).suffix}" if receipt.image_path else None
+    image_url = f"/receipt_images/{receipt['_id']}{Path(receipt['filename']).suffix}" if receipt.get("image_path") else None
     
     return ReceiptResponse(
-        id=receipt.id,
-        filename=receipt.filename,
+        id=receipt["_id"],
+        filename=receipt["filename"],
         image_url=image_url,
-        merchant_name=receipt.merchant_name,
-        transaction_date=receipt.transaction_date,
-        total=receipt.total,
-        subtotal=receipt.subtotal,
-        tax_amount=receipt.tax_amount,
-        receipt_type=receipt.receipt_type,
-        country_region=receipt.country_region,
-        confidence_score=receipt.confidence_score,
+        merchant_name=receipt.get("merchant_name"),
+        transaction_date=receipt.get("transaction_date"),
+        total=receipt.get("total"),
+        subtotal=receipt.get("subtotal"),
+        tax_amount=receipt.get("tax_amount"),
+        receipt_type=receipt.get("receipt_type"),
+        country_region=receipt.get("country_region"),
+        confidence_score=receipt.get("confidence_score"),
         items=[ReceiptItemResponse(
-            description=item.description,
-            quantity=item.quantity,
-            unit_price=item.unit_price,
-            total_price=item.total_price,
-            confidence=item.confidence
+            description=item.get("description"),
+            quantity=item.get("quantity"),
+            unit_price=item.get("unit_price"),
+            total_price=item.get("total_price"),
+            confidence=item.get("confidence")
         ) for item in items],
-        created_at=receipt.created_at
+        created_at=receipt["created_at"]
     )
 
 # 3. SAVE DOCUMENT (This is handled in upload, but keeping for clarity)
 @app.post("/documents", response_model=ReceiptResponse)
 async def save_document(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    file: UploadFile = File(...)
 ):
     """Save document to database (same as upload)"""
-    return await upload_document(file, db)
+    return await upload_document(file)
 
 # 4. VIEW DOCUMENTS (List all documents)
 @app.get("/documents", response_model=List[ReceiptResponse])
 async def view_documents(
     skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db)
+    limit: int = 100
 ):
     """View all documents with pagination"""
-    receipts = db.query(Receipt).offset(skip).limit(limit).all()
+    receipts_cursor = receipts_collection.find().skip(skip).limit(limit).sort("created_at", -1)
+    receipts = await receipts_cursor.to_list(length=None)
     
     result = []
     for receipt in receipts:
         # Get items for this receipt
-        items = db.query(ReceiptItem).filter(ReceiptItem.receipt_id == receipt.id).all()
+        items_cursor = receipt_items_collection.find({"receipt_id": receipt["_id"]})
+        items = await items_cursor.to_list(length=None)
         
         # Generate image URL
-        image_url = f"/receipt_images/{receipt.id}{Path(receipt.filename).suffix}" if receipt.image_path else None
+        image_url = f"/receipt_images/{receipt['_id']}{Path(receipt['filename']).suffix}" if receipt.get("image_path") else None
         
         result.append(ReceiptResponse(
-            id=receipt.id,
-            filename=receipt.filename,
+            id=receipt["_id"],
+            filename=receipt["filename"],
             image_url=image_url,
-            merchant_name=receipt.merchant_name,
-            transaction_date=receipt.transaction_date,
-            total=receipt.total,
-            subtotal=receipt.subtotal,
-            tax_amount=receipt.tax_amount,
-            receipt_type=receipt.receipt_type,
-            country_region=receipt.country_region,
-            confidence_score=receipt.confidence_score,
+            merchant_name=receipt.get("merchant_name"),
+            transaction_date=receipt.get("transaction_date"),
+            total=receipt.get("total"),
+            subtotal=receipt.get("subtotal"),
+            tax_amount=receipt.get("tax_amount"),
+            receipt_type=receipt.get("receipt_type"),
+            country_region=receipt.get("country_region"),
+            confidence_score=receipt.get("confidence_score"),
             items=[ReceiptItemResponse(
-                description=item.description,
-                quantity=item.quantity,
-                unit_price=item.unit_price,
-                total_price=item.total_price,
-                confidence=item.confidence
+                description=item.get("description"),
+                quantity=item.get("quantity"),
+                unit_price=item.get("unit_price"),
+                total_price=item.get("total_price"),
+                confidence=item.get("confidence")
             ) for item in items],
-            created_at=receipt.created_at
+            created_at=receipt["created_at"]
         ))
     
     return result
 
 # 5. DELETE DOCUMENT
 @app.delete("/documents/{document_id}")
-async def delete_document(
-    document_id: str,
-    db: Session = Depends(get_db)
-):
+async def delete_document(document_id: str):
     """Delete document by ID"""
-    receipt = db.query(Receipt).filter(Receipt.id == document_id).first()
+    receipt = await receipts_collection.find_one({"_id": document_id})
     if not receipt:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -665,17 +692,17 @@ async def delete_document(
         )
     
     # Delete associated items first
-    db.query(ReceiptItem).filter(ReceiptItem.receipt_id == document_id).delete()
+    await receipt_items_collection.delete_many({"receipt_id": document_id})
     
     # Delete receipt image if it exists
-    if receipt.image_path and os.path.exists(receipt.image_path):
+    if receipt.get("image_path") and os.path.exists(receipt["image_path"]):
         try:
-            os.remove(receipt.image_path)
+            os.remove(receipt["image_path"])
         except Exception as e:
-            logger.warning(f"Failed to delete receipt image {receipt.image_path}: {e}")
+            logger.warning(f"Failed to delete receipt image {receipt['image_path']}: {e}")
     
-    db.delete(receipt)
-    db.commit()
+    # Delete receipt from MongoDB
+    await receipts_collection.delete_one({"_id": document_id})
     
     return {"message": "Document deleted successfully"}
 

@@ -1,18 +1,10 @@
-# FastAPI and web framework dependencies
 fastapi
 uvicorn[standard]
 python-multipart
-
-# Database dependencies
-sqlalchemy
-alembic
-
-# Azure Document Intelligence SDK
+python-dotenv
 azure-ai-documentintelligence
 azure-core
-
-# Environment and configuration
-python-dotenv
+motor
 
 # Data validation and serialization
 pydantic
