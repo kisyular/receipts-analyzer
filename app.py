@@ -520,7 +520,8 @@ async def upload_document(
         items = await items_cursor.to_list(length=None)
         
         # Generate image URL
-        image_url = f"/receipt_images/{receipt_id}{Path(file.filename or "").suffix}" if receipt_doc["image_path"] else None
+        filename_suffix = Path(file.filename or "").suffix
+        image_url = f"/receipt_images/{receipt_id}{filename_suffix}" if receipt_doc["image_path"] else None
         
         return ReceiptResponse(
             id=receipt_doc["_id"],
