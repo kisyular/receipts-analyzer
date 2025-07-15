@@ -6,11 +6,13 @@ Core operations: Upload, Read, View, Delete receipts
 import os
 import uuid
 import logging
-from datetime import datetime, timezone, date
-from typing import List, Optional
+from datetime import datetime, timezone, date, timedelta
+from typing import List, Optional, Dict, Any
 from pathlib import Path
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
+import calendar
+from collections import defaultdict, Counter
 
 # Configure logging
 logging.basicConfig(
@@ -53,10 +55,8 @@ mongodb_client = AsyncIOMotorClient(DATABASE_URL)
 
 # Extract database name from connection string
 parsed_url = urlparse(DATABASE_URL)
-print(parsed_url)
-print(parsed_url.path)
 database_name = parsed_url.path.strip('/') if parsed_url.path else 'receipts_db'
-database = mongodb_client[database_name]
+database = mongodb_client[str(database_name)]
 receipts_collection = database.receipts
 receipt_items_collection = database.receipt_items
 
@@ -89,6 +89,254 @@ class ReceiptResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# Analytics Models
+class SpendingSummary(BaseModel):
+    total_spent: float
+    total_receipts: int
+    average_per_receipt: float
+    total_tax: float
+    tax_percentage: float
+
+class MonthlySpending(BaseModel):
+    month: str
+    year: int
+    total_spent: float
+    total_receipts: int
+    total_tax: float
+
+class ReceiptTypeAnalysis(BaseModel):
+    receipt_type: str
+    total_spent: float
+    receipt_count: int
+    average_spent: float
+    percentage_of_total: float
+
+class SpendingPrediction(BaseModel):
+    next_month_prediction: float
+    confidence_level: str
+    trend_direction: str
+    factors: List[str]
+
+class ItemAnalysis(BaseModel):
+    item_name: str
+    frequency: int
+    total_spent: float
+    average_price: float
+
+# Analytics Functions
+async def get_spending_summary() -> SpendingSummary:
+    """Get overall spending summary"""
+    pipeline = [
+        {"$match": {"total": {"$exists": True, "$ne": None}}},
+        {"$group": {
+            "_id": None,
+            "total_spent": {"$sum": "$total"},
+            "total_receipts": {"$sum": 1},
+            "total_tax": {"$sum": {"$ifNull": ["$tax_amount", 0]}}
+        }}
+    ]
+    
+    result = await receipts_collection.aggregate(pipeline).to_list(1)
+    if not result:
+        return SpendingSummary(
+            total_spent=0, total_receipts=0, average_per_receipt=0,
+            total_tax=0, tax_percentage=0
+        )
+    
+    data = result[0]
+    total_spent = data["total_spent"]
+    total_receipts = data["total_receipts"]
+    total_tax = data["total_tax"]
+    
+    return SpendingSummary(
+        total_spent=total_spent,
+        total_receipts=total_receipts,
+        average_per_receipt=total_spent / total_receipts if total_receipts > 0 else 0,
+        total_tax=total_tax,
+        tax_percentage=(total_tax / total_spent * 100) if total_spent > 0 else 0
+    )
+
+async def get_monthly_spending() -> List[MonthlySpending]:
+    """Get spending by month"""
+    pipeline = [
+        {"$match": {"transaction_date": {"$exists": True}, "total": {"$exists": True}}},
+        {"$addFields": {
+            "year": {"$year": "$transaction_date"},
+            "month": {"$month": "$transaction_date"}
+        }},
+        {"$group": {
+            "_id": {"year": "$year", "month": "$month"},
+            "total_spent": {"$sum": "$total"},
+            "total_receipts": {"$sum": 1},
+            "total_tax": {"$sum": {"$ifNull": ["$tax_amount", 0]}}
+        }},
+        {"$sort": {"_id.year": 1, "_id.month": 1}}
+    ]
+    
+    results = await receipts_collection.aggregate(pipeline).to_list(None)
+    
+    monthly_data = []
+    for result in results:
+        month_name = calendar.month_name[result["_id"]["month"]]
+        monthly_data.append(MonthlySpending(
+            month=month_name,
+            year=result["_id"]["year"],
+            total_spent=result["total_spent"],
+            total_receipts=result["total_receipts"],
+            total_tax=result["total_tax"]
+        ))
+    
+    return monthly_data
+
+async def get_receipt_type_analysis() -> List[ReceiptTypeAnalysis]:
+    """Get spending analysis by receipt type"""
+    pipeline = [
+        {"$match": {"receipt_type": {"$exists": True}, "total": {"$exists": True}}},
+        {"$group": {
+            "_id": "$receipt_type",
+            "total_spent": {"$sum": "$total"},
+            "receipt_count": {"$sum": 1}
+        }},
+        {"$sort": {"total_spent": -1}}
+    ]
+    
+    results = await receipts_collection.aggregate(pipeline).to_list(None)
+    
+    # Calculate total spending for percentage
+    total_spending = sum(r["total_spent"] for r in results)
+    
+    type_analysis = []
+    for result in results:
+        total_spent = result["total_spent"]
+        receipt_count = result["receipt_count"]
+        
+        type_analysis.append(ReceiptTypeAnalysis(
+            receipt_type=result["_id"] or "Unknown",
+            total_spent=total_spent,
+            receipt_count=receipt_count,
+            average_spent=total_spent / receipt_count if receipt_count > 0 else 0,
+            percentage_of_total=(total_spent / total_spending * 100) if total_spending > 0 else 0
+        ))
+    
+    return type_analysis
+
+async def get_spending_prediction() -> SpendingPrediction:
+    """Predict next month's spending using simple linear regression"""
+    # Get last 6 months of data
+    six_months_ago = datetime.now(timezone.utc) - timedelta(days=180)
+    
+    pipeline = [
+        {"$match": {
+            "transaction_date": {"$gte": six_months_ago},
+            "total": {"$exists": True}
+        }},
+        {"$addFields": {
+            "year": {"$year": "$transaction_date"},
+            "month": {"$month": "$transaction_date"}
+        }},
+        {"$group": {
+            "_id": {"year": "$year", "month": "$month"},
+            "total_spent": {"$sum": "$total"}
+        }},
+        {"$sort": {"_id.year": 1, "_id.month": 1}}
+    ]
+    
+    results = await receipts_collection.aggregate(pipeline).to_list(None)
+    
+    if len(results) < 2:
+        return SpendingPrediction(
+            next_month_prediction=0,
+            confidence_level="Low",
+            trend_direction="Insufficient data",
+            factors=["Need more historical data"]
+        )
+    
+    # Simple linear regression
+    months = list(range(len(results)))
+    spending = [r["total_spent"] for r in results]
+    
+    # Calculate trend
+    n = len(months)
+    sum_x = sum(months)
+    sum_y = sum(spending)
+    sum_xy = sum(x * y for x, y in zip(months, spending))
+    sum_x2 = sum(x * x for x in months)
+    
+    if n * sum_x2 - sum_x * sum_x == 0:
+        slope = 0
+    else:
+        slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x)
+    
+    intercept = (sum_y - slope * sum_x) / n
+    
+    # Predict next month
+    next_month = len(months)
+    prediction = slope * next_month + intercept
+    
+    # Determine trend direction
+    if slope > 50:
+        trend = "Increasing"
+    elif slope < -50:
+        trend = "Decreasing"
+    else:
+        trend = "Stable"
+    
+    # Calculate confidence based on data consistency
+    variance = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(months, spending)) / n
+    confidence = "High" if variance < 10000 else "Medium" if variance < 50000 else "Low"
+    
+    factors = []
+    if len(results) >= 3:
+        factors.append(f"Based on {len(results)} months of data")
+    if abs(slope) > 100:
+        factors.append("Strong spending trend detected")
+    if variance < 10000:
+        factors.append("Consistent spending patterns")
+    
+    return SpendingPrediction(
+        next_month_prediction=max(0, prediction),
+        confidence_level=confidence,
+        trend_direction=trend,
+        factors=factors
+    )
+
+async def get_item_analysis() -> List[ItemAnalysis]:
+    """Analyze frequently purchased items"""
+    pipeline = [
+        {"$lookup": {
+            "from": "receipt_items",
+            "localField": "_id",
+            "foreignField": "receipt_id",
+            "as": "items"
+        }},
+        {"$unwind": "$items"},
+        {"$match": {"items.description": {"$exists": True, "$ne": None}}},
+        {"$group": {
+            "_id": {"$toLower": "$items.description"},
+            "frequency": {"$sum": 1},
+            "total_spent": {"$sum": {"$ifNull": ["$items.total_price", 0]}},
+            "prices": {"$push": {"$ifNull": ["$items.total_price", 0]}}
+        }},
+        {"$addFields": {
+            "average_price": {"$avg": "$prices"}
+        }},
+        {"$sort": {"frequency": -1}},
+        {"$limit": 10}
+    ]
+    
+    results = await receipts_collection.aggregate(pipeline).to_list(None)
+    
+    item_analysis = []
+    for result in results:
+        item_analysis.append(ItemAnalysis(
+            item_name=result["_id"].title(),
+            frequency=result["frequency"],
+            total_spent=result["total_spent"],
+            average_price=result["average_price"]
+        ))
+    
+    return item_analysis
 
 # Lifespan context manager
 @asynccontextmanager
@@ -249,6 +497,11 @@ def extract_receipt_data(receipt_doc):
 async def root():
     """Serve the main HTML page"""
     return FileResponse("index.html")
+
+@app.get("/analytics")
+async def analytics():
+    """Serve the analytics dashboard page"""
+    return FileResponse("analytics.html")
 
 @app.get("/health")
 async def health_check():
@@ -488,6 +741,57 @@ async def delete_document(document_id: str):
     await receipts_collection.delete_one({"_id": document_id})
     
     return {"message": "Document deleted successfully"}
+
+# Analytics Endpoints
+@app.get("/analytics/summary", response_model=SpendingSummary)
+async def get_analytics_summary():
+    """Get overall spending summary"""
+    return await get_spending_summary()
+
+@app.get("/analytics/monthly", response_model=List[MonthlySpending])
+async def get_analytics_monthly():
+    """Get monthly spending breakdown"""
+    return await get_monthly_spending()
+
+@app.get("/analytics/receipt-types", response_model=List[ReceiptTypeAnalysis])
+async def get_analytics_receipt_types():
+    """Get spending analysis by receipt type"""
+    return await get_receipt_type_analysis()
+
+@app.get("/analytics/prediction", response_model=SpendingPrediction)
+async def get_analytics_prediction():
+    """Get spending prediction for next month"""
+    return await get_spending_prediction()
+
+@app.get("/analytics/items", response_model=List[ItemAnalysis])
+async def get_analytics_items():
+    """Get analysis of frequently purchased items"""
+    return await get_item_analysis()
+
+@app.get("/analytics/dashboard")
+async def get_analytics_dashboard():
+    """Get comprehensive analytics dashboard data"""
+    try:
+        summary = await get_spending_summary()
+        monthly = await get_monthly_spending()
+        receipt_types = await get_receipt_type_analysis()
+        prediction = await get_spending_prediction()
+        items = await get_item_analysis()
+        
+        return {
+            "summary": summary,
+            "monthly_spending": monthly,
+            "receipt_types": receipt_types,
+            "prediction": prediction,
+            "top_items": items,
+            "generated_at": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Dashboard generation error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate analytics dashboard"
+        )
 
 if __name__ == "__main__":
     import uvicorn

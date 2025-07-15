@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Receipt Analytics Dashboard</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      :root {
+        --primary-color: #6366f1;
+        --primary-dark: #4f46e5;
+        --success-color: #10b981;
+        --warning-color: #f59e0b;
+        --danger-color: #ef4444;
+        --info-color: #3b82f6;
+      }
+
+      body {
+        background: linear-gradient(
+          135deg,
+          #f8fafc 0%,
+          #e0e7ff 50%,
+          #f1f5f9 100%
+        );
+        min-height: 100vh;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, sans-serif;
+      }
+
+      .navbar {
+        background: rgba(255, 255, 255, 0.95) !important;
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid #e5e7eb;
+      }
+
+      .analytics-card {
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(10px);
+        border-radius: 16px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+      }
+
+      .analytics-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+      }
+
+      .metric-card {
+        text-align: center;
+        padding: 1.5rem;
+        border-radius: 12px;
+        background: linear-gradient(
+          135deg,
+          var(--primary-color),
+          var(--primary-dark)
+        );
+        color: white;
+        margin-bottom: 1rem;
+      }
+
+      .metric-value {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+      }
+
+      .metric-label {
+        font-size: 0.9rem;
+        opacity: 0.9;
+      }
+
+      .chart-container {
+        position: relative;
+        height: 300px;
+        margin: 1rem 0;
+      }
+
+      .loading-spinner {
+        width: 3rem;
+        height: 3rem;
+        border: 3px solid rgba(99, 102, 241, 0.1);
+        border-left: 3px solid var(--primary-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 2rem auto;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .prediction-card {
+        background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+        border: 1px solid #f59e0b;
+      }
+
+      .trend-up {
+        color: var(--success-color);
+      }
+      .trend-down {
+        color: var(--danger-color);
+      }
+      .trend-stable {
+        color: var(--info-color);
+      }
+
+      .confidence-high {
+        color: var(--success-color);
+      }
+      .confidence-medium {
+        color: var(--warning-color);
+      }
+      .confidence-low {
+        color: var(--danger-color);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container-fluid py-4">
+      <!-- Navbar -->
+      <nav class="navbar navbar-light rounded-4 shadow-sm p-3 mb-4">
+        <div class="container-fluid d-flex justify-content-between">
+          <span class="navbar-brand h1 d-flex align-items-center">
+            <i
+              class="fas fa-chart-line me-3 text-primary"
+              style="font-size: 1.5rem"
+            ></i>
+            <span
+              style="
+                font-weight: 700;
+                background: linear-gradient(
+                  135deg,
+                  var(--primary-color),
+                  var(--primary-dark)
+                );
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+              "
+            >
+              Receipt Analytics Dashboard
+            </span>
+          </span>
+          <div>
+            <a href="/" class="btn btn-outline-primary me-2">
+              <i class="fas fa-receipt me-2"></i>Back to Scanner
+            </a>
+            <button class="btn btn-primary" onclick="refreshData()">
+              <i class="fas fa-sync-alt me-2"></i>Refresh
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Loading State -->
+      <div id="loadingState" class="text-center">
+        <div class="loading-spinner"></div>
+        <p class="mt-3">Loading analytics data...</p>
+      </div>
+
+      <!-- Dashboard Content -->
+      <div id="dashboardContent" style="display: none">
+        <!-- Summary Metrics -->
+        <div class="row mb-4">
+          <div class="col-md-3">
+            <div class="metric-card">
+              <div class="metric-value" id="totalSpent">$0</div>
+              <div class="metric-label">Total Spent</div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="metric-card">
+              <div class="metric-value" id="totalReceipts">0</div>
+              <div class="metric-label">Total Receipts</div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="metric-card">
+              <div class="metric-value" id="avgPerReceipt">$0</div>
+              <div class="metric-label">Avg per Receipt</div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="metric-card">
+              <div class="metric-value" id="totalTax">$0</div>
+              <div class="metric-label">Total Tax</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="row mb-4">
+          <div class="col-lg-8">
+            <div class="analytics-card p-4">
+              <h5 class="mb-3">
+                <i class="fas fa-chart-line me-2 text-primary"></i>
+                Monthly Spending Trend
+              </h5>
+              <div class="chart-container">
+                <canvas id="monthlyChart"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-4">
+            <div class="analytics-card p-4">
+              <h5 class="mb-3">
+                <i class="fas fa-chart-pie me-2 text-primary"></i>
+                Spending by Receipt Type
+              </h5>
+              <div class="chart-container">
+                <canvas id="receiptTypeChart"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Prediction and Items Row -->
+        <div class="row mb-4">
+          <div class="col-lg-6">
+            <div class="analytics-card p-4 prediction-card">
+              <h5 class="mb-3">
+                <i class="fas fa-crystal-ball me-2 text-warning"></i>
+                Next Month Prediction
+              </h5>
+              <div id="predictionContent">
+                <div class="row text-center">
+                  <div class="col-6">
+                    <div class="metric-value" id="nextMonthPrediction">$0</div>
+                    <div class="metric-label">Predicted Spending</div>
+                  </div>
+                  <div class="col-6">
+                    <div class="metric-value" id="confidenceLevel">-</div>
+                    <div class="metric-label">Confidence</div>
+                  </div>
+                </div>
+                <div class="mt-3">
+                  <div class="d-flex align-items-center mb-2">
+                    <i class="fas fa-arrow-up me-2" id="trendIcon"></i>
+                    <span id="trendDirection">Loading...</span>
+                  </div>
+                  <div id="predictionFactors" class="small text-muted">
+                    <!-- Factors will be populated here -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-6">
+            <div class="analytics-card p-4">
+              <h5 class="mb-3">
+                <i class="fas fa-shopping-cart me-2 text-primary"></i>
+                Top Purchased Items
+              </h5>
+              <div id="topItemsList">
+                <!-- Items will be populated here -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error State -->
+      <div id="errorState" class="text-center" style="display: none">
+        <div
+          class="alert alert-danger"
+          style="background: #fee2e2; border-radius: 16px"
+        >
+          <i class="fas fa-exclamation-triangle me-2"></i>
+          <span id="errorMessage">Failed to load analytics data</span>
+        </div>
+        <button class="btn btn-primary mt-3" onclick="refreshData()">
+          <i class="fas fa-sync-alt me-2"></i>Try Again
+        </button>
+      </div>
+    </div>
+
+    <script>
+      const API_URL = window.location.origin;
+      let monthlyChart, receiptTypeChart;
+
+      // Initialize dashboard
+      document.addEventListener("DOMContentLoaded", function () {
+        loadDashboard();
+      });
+
+      async function loadDashboard() {
+        showLoading();
+        try {
+          const response = await fetch(`${API_URL}/analytics/dashboard`);
+          if (!response.ok) throw new Error("Failed to load dashboard data");
+
+          const data = await response.json();
+          displayDashboard(data);
+        } catch (error) {
+          console.error("Dashboard error:", error);
+          showError("Failed to load analytics data. Please try again.");
+        }
+      }
+
+      function displayDashboard(data) {
+        // Update summary metrics
+        document.getElementById(
+          "totalSpent"
+        ).textContent = `$${data.summary.total_spent.toFixed(2)}`;
+        document.getElementById("totalReceipts").textContent =
+          data.summary.total_receipts;
+        document.getElementById(
+          "avgPerReceipt"
+        ).textContent = `$${data.summary.average_per_receipt.toFixed(2)}`;
+        document.getElementById(
+          "totalTax"
+        ).textContent = `$${data.summary.total_tax.toFixed(2)}`;
+
+        // Create charts
+        createMonthlyChart(data.monthly_spending);
+        createReceiptTypeChart(data.receipt_types);
+
+        // Update prediction
+        updatePrediction(data.prediction);
+
+        // Update top items
+        updateTopItems(data.top_items);
+
+        showDashboard();
+      }
+
+      function createMonthlyChart(monthlyData) {
+        const ctx = document.getElementById("monthlyChart").getContext("2d");
+
+        if (monthlyChart) {
+          monthlyChart.destroy();
+        }
+
+        const labels = monthlyData.map((item) => `${item.month} ${item.year}`);
+        const spendingData = monthlyData.map((item) => item.total_spent);
+        const taxData = monthlyData.map((item) => item.total_tax);
+
+        monthlyChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: "Total Spending",
+                data: spendingData,
+                borderColor: "#6366f1",
+                backgroundColor: "rgba(99, 102, 241, 0.1)",
+                tension: 0.4,
+                fill: true,
+              },
+              {
+                label: "Tax Amount",
+                data: taxData,
+                borderColor: "#ef4444",
+                backgroundColor: "rgba(239, 68, 68, 0.1)",
+                tension: 0.4,
+                fill: true,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "top",
+              },
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  callback: function (value) {
+                    return "$" + value.toFixed(0);
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      function createReceiptTypeChart(receiptTypes) {
+        const ctx = document
+          .getElementById("receiptTypeChart")
+          .getContext("2d");
+
+        if (receiptTypeChart) {
+          receiptTypeChart.destroy();
+        }
+
+        const labels = receiptTypes.map((item) => item.receipt_type);
+        const data = receiptTypes.map((item) => item.total_spent);
+        const colors = [
+          "#6366f1",
+          "#ef4444",
+          "#10b981",
+          "#f59e0b",
+          "#3b82f6",
+          "#8b5cf6",
+          "#06b6d4",
+          "#84cc16",
+          "#f97316",
+          "#ec4899",
+        ];
+
+        receiptTypeChart = new Chart(ctx, {
+          type: "doughnut",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                data: data,
+                backgroundColor: colors.slice(0, data.length),
+                borderWidth: 2,
+                borderColor: "#ffffff",
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "bottom",
+              },
+            },
+          },
+        });
+      }
+
+      function updatePrediction(prediction) {
+        document.getElementById(
+          "nextMonthPrediction"
+        ).textContent = `$${prediction.next_month_prediction.toFixed(2)}`;
+        document.getElementById("confidenceLevel").textContent =
+          prediction.confidence_level;
+        document.getElementById(
+          "confidenceLevel"
+        ).className = `metric-value confidence-${prediction.confidence_level.toLowerCase()}`;
+
+        const trendIcon = document.getElementById("trendIcon");
+        const trendDirection = document.getElementById("trendDirection");
+
+        if (prediction.trend_direction === "Increasing") {
+          trendIcon.className = "fas fa-arrow-up me-2 trend-up";
+          trendDirection.textContent = "Trending Up";
+          trendDirection.className = "trend-up";
+        } else if (prediction.trend_direction === "Decreasing") {
+          trendIcon.className = "fas fa-arrow-down me-2 trend-down";
+          trendDirection.textContent = "Trending Down";
+          trendDirection.className = "trend-down";
+        } else {
+          trendIcon.className = "fas fa-minus me-2 trend-stable";
+          trendDirection.textContent = "Stable";
+          trendDirection.className = "trend-stable";
+        }
+
+        const factorsList = document.getElementById("predictionFactors");
+        factorsList.innerHTML = prediction.factors
+          .map(
+            (factor) => `<div><i class="fas fa-check me-1"></i>${factor}</div>`
+          )
+          .join("");
+      }
+
+      function updateTopItems(items) {
+        const container = document.getElementById("topItemsList");
+        container.innerHTML = items
+          .map(
+            (item, index) => `
+                <div class="d-flex justify-content-between align-items-center mb-2 p-2 rounded" style="background: rgba(99, 102, 241, 0.05);">
+                    <div>
+                        <div class="fw-bold">${index + 1}. ${
+              item.item_name
+            }</div>
+                        <small class="text-muted">Bought ${
+                          item.frequency
+                        } times</small>
+                    </div>
+                    <div class="text-end">
+                        <div class="fw-bold">$${item.total_spent.toFixed(
+                          2
+                        )}</div>
+                        <small class="text-muted">Avg: $${item.average_price.toFixed(
+                          2
+                        )}</small>
+                    </div>
+                </div>
+            `
+          )
+          .join("");
+      }
+
+      function showLoading() {
+        document.getElementById("loadingState").style.display = "block";
+        document.getElementById("dashboardContent").style.display = "none";
+        document.getElementById("errorState").style.display = "none";
+      }
+
+      function showDashboard() {
+        document.getElementById("loadingState").style.display = "none";
+        document.getElementById("dashboardContent").style.display = "block";
+        document.getElementById("errorState").style.display = "none";
+      }
+
+      function showError(message) {
+        document.getElementById("loadingState").style.display = "none";
+        document.getElementById("dashboardContent").style.display = "none";
+        document.getElementById("errorState").style.display = "block";
+        document.getElementById("errorMessage").textContent = message;
+      }
+
+      function refreshData() {
+        loadDashboard();
+      }
+    </script>
+  </body>
+</html>
