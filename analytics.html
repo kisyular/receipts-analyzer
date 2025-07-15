@@ -100,31 +100,6 @@
           transform: rotate(360deg);
         }
       }
-
-      .prediction-card {
-        background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-        border: 1px solid #f59e0b;
-      }
-
-      .trend-up {
-        color: var(--success-color);
-      }
-      .trend-down {
-        color: var(--danger-color);
-      }
-      .trend-stable {
-        color: var(--info-color);
-      }
-
-      .confidence-high {
-        color: var(--success-color);
-      }
-      .confidence-medium {
-        color: var(--warning-color);
-      }
-      .confidence-low {
-        color: var(--danger-color);
-      }
     </style>
   </head>
   <body>
@@ -224,50 +199,6 @@
             </div>
           </div>
         </div>
-
-        <!-- Prediction and Items Row -->
-        <div class="row mb-4">
-          <div class="col-lg-6">
-            <div class="analytics-card p-4 prediction-card">
-              <h5 class="mb-3">
-                <i class="fas fa-crystal-ball me-2 text-warning"></i>
-                Next Month Prediction
-              </h5>
-              <div id="predictionContent">
-                <div class="row text-center">
-                  <div class="col-6">
-                    <div class="metric-value" id="nextMonthPrediction">$0</div>
-                    <div class="metric-label">Predicted Spending</div>
-                  </div>
-                  <div class="col-6">
-                    <div class="metric-value" id="confidenceLevel">-</div>
-                    <div class="metric-label">Confidence</div>
-                  </div>
-                </div>
-                <div class="mt-3">
-                  <div class="d-flex align-items-center mb-2">
-                    <i class="fas fa-arrow-up me-2" id="trendIcon"></i>
-                    <span id="trendDirection">Loading...</span>
-                  </div>
-                  <div id="predictionFactors" class="small text-muted">
-                    <!-- Factors will be populated here -->
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="col-lg-6">
-            <div class="analytics-card p-4">
-              <h5 class="mb-3">
-                <i class="fas fa-shopping-cart me-2 text-primary"></i>
-                Top Purchased Items
-              </h5>
-              <div id="topItemsList">
-                <!-- Items will be populated here -->
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- Error State -->
@@ -325,12 +256,6 @@
         // Create charts
         createMonthlyChart(data.monthly_spending);
         createReceiptTypeChart(data.receipt_types);
-
-        // Update prediction
-        updatePrediction(data.prediction);
-
-        // Update top items
-        updateTopItems(data.top_items);
 
         showDashboard();
       }
@@ -438,69 +363,6 @@
             },
           },
         });
-      }
-
-      function updatePrediction(prediction) {
-        document.getElementById(
-          "nextMonthPrediction"
-        ).textContent = `$${prediction.next_month_prediction.toFixed(2)}`;
-        document.getElementById("confidenceLevel").textContent =
-          prediction.confidence_level;
-        document.getElementById(
-          "confidenceLevel"
-        ).className = `metric-value confidence-${prediction.confidence_level.toLowerCase()}`;
-
-        const trendIcon = document.getElementById("trendIcon");
-        const trendDirection = document.getElementById("trendDirection");
-
-        if (prediction.trend_direction === "Increasing") {
-          trendIcon.className = "fas fa-arrow-up me-2 trend-up";
-          trendDirection.textContent = "Trending Up";
-          trendDirection.className = "trend-up";
-        } else if (prediction.trend_direction === "Decreasing") {
-          trendIcon.className = "fas fa-arrow-down me-2 trend-down";
-          trendDirection.textContent = "Trending Down";
-          trendDirection.className = "trend-down";
-        } else {
-          trendIcon.className = "fas fa-minus me-2 trend-stable";
-          trendDirection.textContent = "Stable";
-          trendDirection.className = "trend-stable";
-        }
-
-        const factorsList = document.getElementById("predictionFactors");
-        factorsList.innerHTML = prediction.factors
-          .map(
-            (factor) => `<div><i class="fas fa-check me-1"></i>${factor}</div>`
-          )
-          .join("");
-      }
-
-      function updateTopItems(items) {
-        const container = document.getElementById("topItemsList");
-        container.innerHTML = items
-          .map(
-            (item, index) => `
-                <div class="d-flex justify-content-between align-items-center mb-2 p-2 rounded" style="background: rgba(99, 102, 241, 0.05);">
-                    <div>
-                        <div class="fw-bold">${index + 1}. ${
-              item.item_name
-            }</div>
-                        <small class="text-muted">Bought ${
-                          item.frequency
-                        } times</small>
-                    </div>
-                    <div class="text-end">
-                        <div class="fw-bold">$${item.total_spent.toFixed(
-                          2
-                        )}</div>
-                        <small class="text-muted">Avg: $${item.average_price.toFixed(
-                          2
-                        )}</small>
-                    </div>
-                </div>
-            `
-          )
-          .join("");
       }
 
       function showLoading() {

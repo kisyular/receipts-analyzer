@@ -55,7 +55,11 @@ mongodb_client = AsyncIOMotorClient(DATABASE_URL)
 
 # Extract database name from connection string
 parsed_url = urlparse(DATABASE_URL)
-database_name = parsed_url.path.strip('/') if parsed_url.path else 'receipts_db'
+db_path = parsed_url.path
+if isinstance(db_path, str):
+    database_name = db_path.lstrip("/") if db_path else 'receipts_db'
+else:
+    database_name = 'receipts_db'
 database = mongodb_client[str(database_name)]
 receipts_collection = database.receipts
 receipt_items_collection = database.receipt_items
@@ -112,18 +116,6 @@ class ReceiptTypeAnalysis(BaseModel):
     average_spent: float
     percentage_of_total: float
 
-class SpendingPrediction(BaseModel):
-    next_month_prediction: float
-    confidence_level: str
-    trend_direction: str
-    factors: List[str]
-
-class ItemAnalysis(BaseModel):
-    item_name: str
-    frequency: int
-    total_spent: float
-    average_price: float
-
 # Analytics Functions
 async def get_spending_summary() -> SpendingSummary:
     """Get overall spending summary"""
@@ -178,9 +170,13 @@ async def get_monthly_spending() -> List[MonthlySpending]:
     
     monthly_data = []
     for result in results:
-        month_name = calendar.month_name[result["_id"]["month"]]
+        month_val = result["_id"]["month"]
+        if isinstance(month_val, (list, tuple)):
+            # Defensive: flatten if somehow a sequence
+            month_val = month_val[0] if month_val else 1
+        month_name = calendar.month_name[month_val]
         monthly_data.append(MonthlySpending(
-            month=month_name,
+            month=str(month_name),
             year=result["_id"]["year"],
             total_spent=result["total_spent"],
             total_receipts=result["total_receipts"],
@@ -220,123 +216,6 @@ async def get_receipt_type_analysis() -> List[ReceiptTypeAnalysis]:
         ))
     
     return type_analysis
-
-async def get_spending_prediction() -> SpendingPrediction:
-    """Predict next month's spending using simple linear regression"""
-    # Get last 6 months of data
-    six_months_ago = datetime.now(timezone.utc) - timedelta(days=180)
-    
-    pipeline = [
-        {"$match": {
-            "transaction_date": {"$gte": six_months_ago},
-            "total": {"$exists": True}
-        }},
-        {"$addFields": {
-            "year": {"$year": "$transaction_date"},
-            "month": {"$month": "$transaction_date"}
-        }},
-        {"$group": {
-            "_id": {"year": "$year", "month": "$month"},
-            "total_spent": {"$sum": "$total"}
-        }},
-        {"$sort": {"_id.year": 1, "_id.month": 1}}
-    ]
-    
-    results = await receipts_collection.aggregate(pipeline).to_list(None)
-    
-    if len(results) < 2:
-        return SpendingPrediction(
-            next_month_prediction=0,
-            confidence_level="Low",
-            trend_direction="Insufficient data",
-            factors=["Need more historical data"]
-        )
-    
-    # Simple linear regression
-    months = list(range(len(results)))
-    spending = [r["total_spent"] for r in results]
-    
-    # Calculate trend
-    n = len(months)
-    sum_x = sum(months)
-    sum_y = sum(spending)
-    sum_xy = sum(x * y for x, y in zip(months, spending))
-    sum_x2 = sum(x * x for x in months)
-    
-    if n * sum_x2 - sum_x * sum_x == 0:
-        slope = 0
-    else:
-        slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x)
-    
-    intercept = (sum_y - slope * sum_x) / n
-    
-    # Predict next month
-    next_month = len(months)
-    prediction = slope * next_month + intercept
-    
-    # Determine trend direction
-    if slope > 50:
-        trend = "Increasing"
-    elif slope < -50:
-        trend = "Decreasing"
-    else:
-        trend = "Stable"
-    
-    # Calculate confidence based on data consistency
-    variance = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(months, spending)) / n
-    confidence = "High" if variance < 10000 else "Medium" if variance < 50000 else "Low"
-    
-    factors = []
-    if len(results) >= 3:
-        factors.append(f"Based on {len(results)} months of data")
-    if abs(slope) > 100:
-        factors.append("Strong spending trend detected")
-    if variance < 10000:
-        factors.append("Consistent spending patterns")
-    
-    return SpendingPrediction(
-        next_month_prediction=max(0, prediction),
-        confidence_level=confidence,
-        trend_direction=trend,
-        factors=factors
-    )
-
-async def get_item_analysis() -> List[ItemAnalysis]:
-    """Analyze frequently purchased items"""
-    pipeline = [
-        {"$lookup": {
-            "from": "receipt_items",
-            "localField": "_id",
-            "foreignField": "receipt_id",
-            "as": "items"
-        }},
-        {"$unwind": "$items"},
-        {"$match": {"items.description": {"$exists": True, "$ne": None}}},
-        {"$group": {
-            "_id": {"$toLower": "$items.description"},
-            "frequency": {"$sum": 1},
-            "total_spent": {"$sum": {"$ifNull": ["$items.total_price", 0]}},
-            "prices": {"$push": {"$ifNull": ["$items.total_price", 0]}}
-        }},
-        {"$addFields": {
-            "average_price": {"$avg": "$prices"}
-        }},
-        {"$sort": {"frequency": -1}},
-        {"$limit": 10}
-    ]
-    
-    results = await receipts_collection.aggregate(pipeline).to_list(None)
-    
-    item_analysis = []
-    for result in results:
-        item_analysis.append(ItemAnalysis(
-            item_name=result["_id"].title(),
-            frequency=result["frequency"],
-            total_spent=result["total_spent"],
-            average_price=result["average_price"]
-        ))
-    
-    return item_analysis
 
 # Lifespan context manager
 @asynccontextmanager
@@ -758,16 +637,6 @@ async def get_analytics_receipt_types():
     """Get spending analysis by receipt type"""
     return await get_receipt_type_analysis()
 
-@app.get("/analytics/prediction", response_model=SpendingPrediction)
-async def get_analytics_prediction():
-    """Get spending prediction for next month"""
-    return await get_spending_prediction()
-
-@app.get("/analytics/items", response_model=List[ItemAnalysis])
-async def get_analytics_items():
-    """Get analysis of frequently purchased items"""
-    return await get_item_analysis()
-
 @app.get("/analytics/dashboard")
 async def get_analytics_dashboard():
     """Get comprehensive analytics dashboard data"""
@@ -775,15 +644,11 @@ async def get_analytics_dashboard():
         summary = await get_spending_summary()
         monthly = await get_monthly_spending()
         receipt_types = await get_receipt_type_analysis()
-        prediction = await get_spending_prediction()
-        items = await get_item_analysis()
         
         return {
             "summary": summary,
             "monthly_spending": monthly,
             "receipt_types": receipt_types,
-            "prediction": prediction,
-            "top_items": items,
             "generated_at": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
