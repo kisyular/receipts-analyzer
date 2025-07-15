@@ -13,53 +13,195 @@
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
     />
     <style>
+      :root {
+        --primary-color: #6366f1;
+        --primary-dark: #4f46e5;
+        --secondary-color: #f8fafc;
+        --success-color: #10b981;
+        --warning-color: #f59e0b;
+        --danger-color: #ef4444;
+        --text-primary: #1f2937;
+        --text-secondary: #6b7280;
+        --border-color: #e5e7eb;
+        --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        --card-shadow-hover: 0 10px 15px rgba(0, 0, 0, 0.1);
+      }
+
       body {
-        background: linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%);
+        background: linear-gradient(
+          135deg,
+          #f8fafc 0%,
+          #e0e7ff 50%,
+          #f1f5f9 100%
+        );
         min-height: 100vh;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, sans-serif;
+        color: var(--text-primary);
       }
+
+      .navbar {
+        background: rgba(255, 255, 255, 0.95) !important;
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid var(--border-color);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+
       .upload-area {
-        border: 2px dashed #0d6efd;
-        border-radius: 1.5rem;
-        padding: 3rem;
+        border: 3px dashed var(--primary-color);
+        border-radius: 20px;
+        padding: 4rem 2rem;
         text-align: center;
-        background: #fff;
-        transition: all 0.3s;
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(10px);
+        transition: all 0.3s ease;
         cursor: pointer;
+        position: relative;
+        overflow: hidden;
       }
+
       .upload-area.dragover {
-        border-color: #6610f2;
-        background: #f0f4ff;
+        border-color: var(--success-color);
+        background: rgba(16, 185, 129, 0.05);
+        transform: scale(1.02);
+        box-shadow: 0 20px 25px rgba(0, 0, 0, 0.1);
+      }
+
+      .upload-icon {
+        font-size: 4rem;
+        color: var(--primary-color);
+        margin-bottom: 1.5rem;
+        opacity: 0.8;
+      }
+
+      /* Preview Section Styles */
+      .preview-container {
+        position: relative;
+        text-align: center;
       }
       .preview-image {
         max-width: 100%;
-        max-height: 350px;
-        border-radius: 1rem;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        max-height: 400px;
+        border-radius: 16px;
+        box-shadow: var(--card-shadow);
+        border: 3px solid white;
       }
+      /* Canvas overlay on top of preview image */
+      .preview-canvas {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        pointer-events: none;
+        border-radius: 16px;
+      }
+
+      .data-card,
       .receipt-card {
-        border-radius: 1.5rem;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
-        background: #fff;
-        margin-bottom: 1.5rem;
+        border-radius: 12px;
+        box-shadow: var(--card-shadow);
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--border-color);
+        transition: all 0.3s ease;
+        padding: 1rem;
       }
-      .modal-img {
-        max-width: 100%;
-        border-radius: 1rem;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+
+      .data-card:hover,
+      .receipt-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--card-shadow-hover);
+      }
+
+      .btn {
+        border-radius: 12px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+      }
+
+      .btn-primary {
+        background: linear-gradient(
+          135deg,
+          var(--primary-color),
+          var(--primary-dark)
+        );
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-1px);
+      }
+
+      .loading-spinner {
+        width: 4rem;
+        height: 4rem;
+        border: 4px solid rgba(99, 102, 241, 0.1);
+        border-left: 4px solid var(--primary-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .fade-in {
+        animation: fadeIn 0.5s ease-in;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .slide-in {
+        animation: slideIn 0.3s ease-out;
+      }
+      @keyframes slideIn {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(0);
+        }
       }
     </style>
   </head>
   <body>
-    <div class="container py-5">
+    <div class="container-fluid py-4">
+      <!-- Navbar -->
       <div class="row justify-content-center mb-4">
-        <div class="col-lg-8">
-          <nav
-            class="navbar navbar-light bg-white rounded-4 shadow-sm mb-4 p-3"
-          >
-            <div class="container-fluid justify-content-between">
-              <span class="navbar-brand mb-0 h1"
-                ><i class="fas fa-receipt me-2"></i>Receipt Scanner Pro</span
-              >
+        <div class="col-lg-10 col-xl-8">
+          <nav class="navbar navbar-light rounded-4 shadow-sm p-3 mb-4">
+            <div class="container-fluid d-flex justify-content-between">
+              <span class="navbar-brand h1 d-flex align-items-center">
+                <i
+                  class="fas fa-receipt me-3 text-primary"
+                  style="font-size: 1.5rem"
+                ></i>
+                <span
+                  style="
+                    font-weight: 700;
+                    background: linear-gradient(
+                      135deg,
+                      var(--primary-color),
+                      var(--primary-dark)
+                    );
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                  "
+                >
+                  Receipt Scanner Pro
+                </span>
+              </span>
               <ul class="nav nav-pills">
                 <li class="nav-item">
                   <button class="nav-link active" id="scan-tab" type="button">
@@ -76,30 +218,31 @@
           </nav>
         </div>
       </div>
+
+      <!-- Main Content -->
       <div class="row justify-content-center">
-        <div class="col-lg-8">
-          <div id="scan-content">
+        <div class="col-lg-10 col-xl-8">
+          <!-- Scan Section -->
+          <div id="scan-content" class="fade-in">
             <div id="uploadSection">
               <div class="upload-area mb-4" id="uploadArea">
-                <div class="mb-3">
-                  <i
-                    class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"
-                  ></i>
-                  <h4>Upload Receipt</h4>
-                  <p class="text-muted">
-                    Drag & drop your receipt image or use the buttons below
+                <div class="mb-4">
+                  <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                  <h3 class="mb-2 fw-bold">Upload Your Receipt</h3>
+                  <p class="text-muted fs-5">
+                    Drag & drop your receipt image or use the buttons below.
                   </p>
                 </div>
                 <div
-                  class="d-flex flex-column flex-sm-row justify-content-center gap-3 mb-3"
+                  class="d-flex flex-column flex-sm-row justify-content-center gap-3 mb-4"
                 >
                   <button
-                    class="btn btn-primary"
+                    class="btn btn-primary btn-lg"
                     onclick="document.getElementById('fileInput').click()"
                   >
                     <i class="fas fa-upload me-2"></i>Choose File
                   </button>
-                  <button class="btn btn-outline-secondary" id="cameraBtn">
+                  <button class="btn btn-outline-primary btn-lg" id="cameraBtn">
                     <i class="fas fa-camera me-2"></i>Take Photo
                   </button>
                 </div>
@@ -109,75 +252,88 @@
                   accept="image/*"
                   style="display: none"
                 />
-                <div class="mt-3 text-muted small">
-                  Supports: JPG, PNG, BMP, TIFF, HEIF<br />Max size: 10MB
+                <div class="text-muted">
+                  <small>
+                    <i class="fas fa-info-circle me-1"></i>
+                    Supports: JPG, PNG, BMP, TIFF, HEIF • Max size: 10MB
+                  </small>
                 </div>
               </div>
             </div>
-            <div id="previewSection" style="display: none">
-              <div class="text-center mb-3">
+
+            <!-- Preview Section with Canvas Overlay -->
+            <div id="previewSection" class="slide-in" style="display: none">
+              <div class="preview-container mb-4">
                 <img
                   id="previewImage"
                   class="preview-image"
                   alt="Receipt preview"
                 />
+                <canvas id="previewCanvas" class="preview-canvas"></canvas>
               </div>
               <div
                 class="d-flex flex-column flex-sm-row justify-content-center gap-3"
               >
-                <button class="btn btn-success" onclick="analyzeReceipt()">
+                <button
+                  class="btn btn-success btn-lg"
+                  onclick="analyzeReceipt()"
+                >
                   <i class="fas fa-magic me-2"></i>Analyze Receipt
                 </button>
                 <button
-                  class="btn btn-outline-secondary"
+                  class="btn btn-outline-secondary btn-lg"
                   onclick="resetUpload()"
                 >
                   <i class="fas fa-edit me-2"></i>Change Image
                 </button>
               </div>
             </div>
+
+            <!-- Loading Section -->
             <div id="loadingSection" style="display: none">
               <div class="text-center py-5">
-                <div
-                  class="spinner-border text-primary mb-3"
-                  style="width: 3rem; height: 3rem"
-                  role="status"
-                ></div>
-                <h5>Analyzing Receipt...</h5>
+                <div class="loading-spinner mb-4"></div>
+                <h4 class="mb-2">Analyzing Receipt...</h4>
                 <p class="text-muted">
-                  Please wait while we process your image
+                  Please wait while we process your image.
                 </p>
               </div>
             </div>
-            <div id="resultsSection" style="display: none">
-              <div class="alert alert-success text-center">
-                <i class="fas fa-check-circle fa-2x me-2"></i>Analysis Complete!
+
+            <!-- Results Section -->
+            <div id="resultsSection" class="fade-in" style="display: none">
+              <div
+                class="alert alert-success text-center border-0"
+                style="
+                  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+                  border-radius: 16px;
+                "
+              >
+                <i class="fas fa-check-circle fa-2x me-3 text-success"></i>
+                <span class="fw-semibold fs-5">Analysis Complete!</span>
               </div>
               <div id="resultsContent"></div>
               <div class="text-center mt-4">
-                <button class="btn btn-primary" onclick="resetUpload()">
+                <button class="btn btn-primary btn-lg" onclick="resetUpload()">
                   <i class="fas fa-plus me-2"></i>Scan Another Receipt
                 </button>
               </div>
             </div>
           </div>
-          <div id="history-content" style="display: none">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-              <h5><i class="fas fa-history me-2"></i>Saved Receipts</h5>
-              <button
-                class="btn btn-outline-primary btn-sm"
-                onclick="loadReceipts()"
-              >
+
+          <!-- History Section -->
+          <div id="history-content" class="fade-in" style="display: none">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+              <h4 class="mb-0">
+                <i class="fas fa-history me-2 text-primary"></i>Saved Receipts
+              </h4>
+              <button class="btn btn-outline-primary" onclick="loadReceipts()">
                 <i class="fas fa-sync me-2"></i>Refresh
               </button>
             </div>
             <div id="receiptsList">
               <div class="text-center py-5">
-                <div
-                  class="spinner-border text-primary mb-3"
-                  style="width: 3rem; height: 3rem"
-                  role="status"
-                ></div>
+                <div class="loading-spinner mb-4"></div>
                 <p>Loading receipts...</p>
               </div>
             </div>
@@ -207,10 +363,9 @@
         document
           .getElementById("fileInput")
           .addEventListener("change", function (e) {
-            if (e.target.files[0]) {
-              handleFileSelect(e.target.files[0]);
-            }
+            if (e.target.files[0]) handleFileSelect(e.target.files[0]);
           });
+
         const uploadArea = document.getElementById("uploadArea");
         uploadArea.addEventListener("dragover", function (e) {
           e.preventDefault();
@@ -222,10 +377,10 @@
         uploadArea.addEventListener("drop", function (e) {
           e.preventDefault();
           uploadArea.classList.remove("dragover");
-          if (e.dataTransfer.files[0]) {
+          if (e.dataTransfer.files[0])
             handleFileSelect(e.dataTransfer.files[0]);
-          }
         });
+
         document
           .getElementById("scan-tab")
           .addEventListener("click", function () {
@@ -238,6 +393,7 @@
             loadReceipts();
           });
       }
+
       function switchTab(tabName) {
         document.getElementById("scan-tab").classList.remove("active");
         document.getElementById("history-tab").classList.remove("active");
@@ -251,6 +407,7 @@
           document.getElementById("history-content").style.display = "";
         }
       }
+
       function handleFileSelect(file) {
         if (!file.type.startsWith("image/")) {
           showToast("Please select an image file", "danger");
@@ -263,14 +420,30 @@
         currentFile = file;
         showPreview(file);
       }
+
       function showPreview(file) {
         const reader = new FileReader();
         reader.onload = function (e) {
-          document.getElementById("previewImage").src = e.target.result;
+          const previewImg = document.getElementById("previewImage");
+          previewImg.src = e.target.result;
+          // Once the preview image is loaded, adjust the canvas size to match
+          previewImg.onload = function () {
+            const canvas = document.getElementById("previewCanvas");
+            canvas.width = previewImg.clientWidth;
+            canvas.height = previewImg.clientHeight;
+            // Optional: draw a border or overlay on the canvas
+            const ctx = canvas.getContext("2d");
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = "rgba(99, 102, 241, 0.8)";
+            ctx.lineWidth = 4;
+            ctx.setLineDash([8, 4]);
+            ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
+          };
           showSection("previewSection");
         };
         reader.readAsDataURL(file);
       }
+
       async function analyzeReceipt() {
         if (!currentFile) {
           showToast("No image selected", "danger");
@@ -296,6 +469,7 @@
           showSection("uploadSection");
         }
       }
+
       function displayResults(data) {
         const resultsContent = document.getElementById("resultsContent");
         const merchant = data.merchant_name || "N/A";
@@ -303,110 +477,163 @@
           ? new Date(data.transaction_date).toLocaleDateString()
           : "N/A";
         const total = data.total ? `$${data.total.toFixed(2)}` : "N/A";
-        const confidence = data.confidence_score
-          ? `${(data.confidence_score * 100).toFixed(1)}%`
+        const subtotal = data.subtotal ? `$${data.subtotal.toFixed(2)}` : "N/A";
+        const taxAmount = data.tax_amount
+          ? `$${data.tax_amount.toFixed(2)}`
           : "N/A";
+        const receiptType = data.receipt_type || "N/A";
+        const countryRegion = data.country_region || "N/A";
+        const confidence = data.confidence_score
+          ? (data.confidence_score * 100).toFixed(1)
+          : "N/A";
+
+        let confidenceClass = "badge bg-success";
+        if (confidence !== "N/A") {
+          const confValue = parseFloat(confidence);
+          if (confValue < 60) confidenceClass = "badge bg-danger";
+          else if (confValue < 80)
+            confidenceClass = "badge bg-warning text-dark";
+        }
+
         let html = `
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
-                        <div class="card card-body">
-                            <strong>Merchant:</strong> <span class="float-end">${merchant}</span>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card card-body">
-                            <strong>Date:</strong> <span class="float-end">${date}</span>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card card-body">
-                            <strong>Total:</strong> <span class="float-end text-success fw-bold">${total}</span>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card card-body">
-                            <strong>Confidence:</strong> <span class="float-end">${confidence}</span>
-                        </div>
-                    </div>
-                </div>
-            `;
+          <div class="row row-cols-1 row-cols-md-4 g-4">
+            <div class="col">
+              <div class="data-card text-center">
+                <div class="fw-semibold">Merchant</div>
+                <div>${merchant}</div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="data-card text-center">
+                <div class="fw-semibold">Date</div>
+                <div>${date}</div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="data-card text-center">
+                <div class="fw-semibold">Subtotal</div>
+                <div>${subtotal}</div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="data-card text-center">
+                <div class="fw-semibold">Tax</div>
+                <div>${taxAmount}</div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="data-card text-center">
+                <div class="fw-semibold">Total</div>
+                <div class="fs-5 text-success">${total}</div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="data-card text-center">
+                <div class="fw-semibold">Receipt Type</div>
+                <div>${receiptType}</div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="data-card text-center">
+                <div class="fw-semibold">Country</div>
+                <div>${countryRegion}</div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="data-card text-center">
+                <div class="fw-semibold">Confidence</div>
+                <div><span class="${confidenceClass}">${confidence}%</span></div>
+              </div>
+            </div>
+          </div>
+        `;
+
         if (data.items && data.items.length > 0) {
           html += `
-                    <h6 class="mb-2">Items</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-bordered">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Description</th>
-                                    <th class="text-end">Quantity</th>
-                                    <th class="text-end">Unit Price</th>
-                                    <th class="text-end">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${data.items
-                                  .map(
-                                    (item) => `
-                                    <tr>
-                                        <td>${
-                                          item.description || "Unknown"
-                                        }</td>
-                                        <td class="text-end">${
-                                          item.quantity || 1
-                                        }</td>
-                                        <td class="text-end">$${(
-                                          item.unit_price || 0
-                                        ).toFixed(2)}</td>
-                                        <td class="text-end">$${(
-                                          item.total_price || 0
-                                        ).toFixed(2)}</td>
-                                    </tr>
-                                `
-                                  )
-                                  .join("")}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
+            <div class="mt-4">
+              <h5 class="mb-3">
+                <i class="fas fa-list me-2 text-primary"></i>Items (${
+                  data.items.length
+                })
+              </h5>
+              <div class="table-responsive">
+                <table class="table table-striped">
+                  <thead class="table-primary">
+                    <tr>
+                      <th>Description</th>
+                      <th class="text-end">Quantity</th>
+                      <th class="text-end">Unit Price</th>
+                      <th class="text-end">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${data.items
+                      .map(
+                        (item) => `
+                        <tr>
+                          <td><strong>${
+                            item.description || "Unknown"
+                          }</strong></td>
+                          <td class="text-end">${item.quantity || 1}</td>
+                          <td class="text-end">$${(
+                            item.unit_price || 0
+                          ).toFixed(2)}</td>
+                          <td class="text-end"><strong>$${(
+                            item.total_price || 0
+                          ).toFixed(2)}</strong></td>
+                        </tr>
+                      `
+                      )
+                      .join("")}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `;
         }
+
         resultsContent.innerHTML = html;
         showSection("resultsSection");
       }
+
       async function loadReceipts() {
         const receiptsList = document.getElementById("receiptsList");
         try {
           receiptsList.innerHTML = `
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
-                        <p>Loading receipts...</p>
-                    </div>
-                `;
+            <div class="text-center py-5">
+              <div class="loading-spinner mb-4"></div>
+              <p>Loading receipts...</p>
+            </div>
+          `;
           const response = await fetch(`${API_URL}/documents`);
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
+          if (!response.ok) throw new Error("Failed to load receipts");
           const receipts = await response.json();
           displayReceipts(receipts);
         } catch (error) {
           receiptsList.innerHTML = `
-                    <div class="alert alert-danger text-center">
-                        <i class="fas fa-exclamation-triangle me-2"></i>Failed to load receipts. Please try again.
-                    </div>
-                `;
+            <div class="alert alert-danger text-center" style="background: #fee2e2; border-radius: 16px;">
+              <i class="fas fa-exclamation-triangle me-2"></i>Failed to load receipts.
+            </div>
+          `;
         }
       }
+
       function displayReceipts(receipts) {
         const receiptsList = document.getElementById("receiptsList");
         if (!receipts || receipts.length === 0) {
           receiptsList.innerHTML = `
-                    <div class="text-center text-muted py-5">
-                        <i class="fas fa-receipt fa-3x mb-3"></i>
-                        <h5>No saved receipts</h5>
-                        <p>Scan your first receipt to get started!</p>
-                    </div>
-                `;
+            <div class="text-center py-5">
+              <i class="fas fa-receipt fa-3x text-secondary"></i>
+              <h4 class="my-3">No saved receipts</h4>
+              <p>Scan your first receipt to get started!</p>
+              <button class="btn btn-primary" onclick="switchTab('scan')">
+                <i class="fas fa-camera me-2"></i>Scan Receipt
+              </button>
+            </div>
+          `;
           return;
         }
+
         const receiptsHtml = receipts
           .map((receipt) => {
             const merchant = receipt.merchant_name || "Unknown Merchant";
@@ -417,141 +644,202 @@
               ? `$${receipt.total.toFixed(2)}`
               : "$0.00";
             const confidence = receipt.confidence_score
-              ? `${(receipt.confidence_score * 100).toFixed(1)}%`
+              ? (receipt.confidence_score * 100).toFixed(1)
               : "N/A";
+            let badgeClass = "badge bg-success";
+            if (confidence !== "N/A") {
+              const confValue = parseFloat(confidence);
+              if (confValue < 60) badgeClass = "badge bg-danger";
+              else if (confValue < 80)
+                badgeClass = "badge bg-warning text-dark";
+            }
             return `
-                    <div class="receipt-card p-4 mb-3">
-                        <div class="row align-items-center">
-                            <div class="col-md-2 text-center mb-3 mb-md-0">
-                                ${
-                                  receipt.image_url
-                                    ? `<img src="${API_URL}${receipt.image_url}" alt="Receipt" class="img-fluid rounded shadow-sm" style="max-height: 80px;">`
-                                    : `<i class="fas fa-receipt fa-2x text-secondary"></i>`
-                                }
-                            </div>
-                            <div class="col-md-6">
-                                <h6 class="mb-1">${merchant}</h6>
-                                <small class="text-muted">${date} • Confidence: ${confidence}</small>
-                            </div>
-                            <div class="col-md-2 text-end">
-                                <span class="fw-bold text-success">${total}</span>
-                            </div>
-                            <div class="col-md-2 text-end d-flex flex-column gap-2">
-                                <button class="btn btn-outline-primary btn-sm mb-1" onclick="viewReceiptDetails('${
-                                  receipt.id
-                                }')">
-                                    <i class="fas fa-eye me-1"></i>Details
-                                </button>
-                                <button class="btn btn-outline-danger btn-sm" onclick="deleteReceipt('${
-                                  receipt.id
-                                }')">
-                                    <i class="fas fa-trash me-1"></i>Delete
-                                </button>
-                            </div>
-                        </div>
+              <div class="receipt-card mb-3 p-3">
+                <div class="row align-items-center">
+                  <div class="col-md-2 text-center">
+                    ${
+                      receipt.image_url
+                        ? `<img src="${API_URL}${receipt.image_url}" alt="Receipt" class="img-fluid rounded" style="max-height: 80px; border: 2px solid white;">`
+                        : `<i class="fas fa-receipt fa-2x text-secondary"></i>`
+                    }
+                  </div>
+                  <div class="col-md-5">
+                    <h6 class="fw-bold mb-1">${merchant}</h6>
+                    <div class="d-flex align-items-center gap-2">
+                      <small class="text-muted"><i class="fas fa-calendar me-1"></i>${date}</small>
+                      <span class="${badgeClass}">${confidence}%</span>
                     </div>
-                `;
+                  </div>
+                  <div class="col-md-2 text-end">
+                    <span class="fs-5 text-success fw-bold">${total}</span>
+                  </div>
+                  <div class="col-md-3 text-end">
+                    <button class="btn btn-outline-primary btn-sm" onclick="viewReceiptDetails('${
+                      receipt.id
+                    }')">
+                      <i class="fas fa-eye me-1"></i>Details
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="deleteReceipt('${
+                      receipt.id
+                    }')">
+                      <i class="fas fa-trash me-1"></i>Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            `;
           })
           .join("");
         receiptsList.innerHTML = receiptsHtml;
       }
+
       async function viewReceiptDetails(receiptId) {
         try {
           const response = await fetch(`${API_URL}/documents/${receiptId}`);
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
+          if (!response.ok) throw new Error("Failed to load receipt details");
           const receipt = await response.json();
           showReceiptModal(receipt);
         } catch (error) {
           showToast("Failed to load receipt details", "danger");
         }
       }
+
       function showReceiptModal(receipt) {
-        const merchant = receipt.merchant_name || "N/A";
-        const date = receipt.transaction_date
-          ? new Date(receipt.transaction_date).toLocaleDateString()
-          : "N/A";
-        const total = receipt.total ? `$${receipt.total.toFixed(2)}` : "N/A";
-        const confidence = receipt.confidence_score
-          ? `${(receipt.confidence_score * 100).toFixed(1)}%`
-          : "N/A";
-        let itemsHtml = "";
-        if (receipt.items && receipt.items.length > 0) {
-          itemsHtml = `
-                    <h6 class="mb-2">Items</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-bordered">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Description</th>
-                                    <th class="text-end">Quantity</th>
-                                    <th class="text-end">Unit Price</th>
-                                    <th class="text-end">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${receipt.items
-                                  .map(
-                                    (item) => `
-                                    <tr>
-                                        <td>${
-                                          item.description || "Unknown"
-                                        }</td>
-                                        <td class="text-end">${
-                                          item.quantity || 1
-                                        }</td>
-                                        <td class="text-end">$${(
-                                          item.unit_price || 0
-                                        ).toFixed(2)}</td>
-                                        <td class="text-end">$${(
-                                          item.total_price || 0
-                                        ).toFixed(2)}</td>
-                                    </tr>
-                                `
-                                  )
-                                  .join("")}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-        }
         const modalHtml = `
-                <div class="modal fade" id="receiptModal" tabindex="-1" aria-labelledby="receiptModalLabel" aria-hidden="true">
-                    <div class="modal-dialog modal-lg">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="receiptModalLabel"><i class="fas fa-receipt me-2"></i>Receipt Details</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                            </div>
-                            <div class="modal-body">
-                                <div class="row g-4 mb-3">
-                                    <div class="col-md-5 text-center">
-                                        ${
-                                          receipt.image_url
-                                            ? `<img src="${API_URL}${receipt.image_url}" alt="Receipt" class="modal-img mb-3">`
-                                            : `<i class="fas fa-receipt fa-3x text-secondary"></i>`
-                                        }
-                                    </div>
-                                    <div class="col-md-7">
-                                        <div class="mb-2"><strong>Merchant:</strong> ${merchant}</div>
-                                        <div class="mb-2"><strong>Date:</strong> ${date}</div>
-                                        <div class="mb-2"><strong>Total:</strong> <span class="text-success fw-bold">${total}</span></div>
-                                        <div class="mb-2"><strong>Confidence:</strong> ${confidence}</div>
-                                        <div class="mb-2"><strong>Receipt ID:</strong> <span class="text-muted small">${
-                                          receipt.id
-                                        }</span></div>
-                                    </div>
-                                </div>
-                                ${itemsHtml}
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                            </div>
-                        </div>
-                    </div>
+          <div class="modal fade" id="receiptModal" tabindex="-1" aria-labelledby="receiptModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+              <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                  <h5 class="modal-title" id="receiptModalLabel">
+                    <i class="fas fa-receipt me-2"></i>Receipt Details
+                  </h5>
+                  <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
-            `;
+                <div class="modal-body">
+                  <div class="row g-4 mb-4">
+                    <div class="col-md-5 text-center">
+                      ${
+                        receipt.image_url
+                          ? `<img src="${API_URL}${receipt.image_url}" alt="Receipt" class="img-fluid rounded" style="border: 2px solid white;">`
+                          : `<i class="fas fa-receipt fa-3x text-secondary"></i>`
+                      }
+                    </div>
+                    <div class="col-md-7">
+                      <div class="row row-cols-2 g-3">
+                        <div class="data-card text-center">
+                          <div class="fw-semibold">Merchant</div>
+                          <div>${receipt.merchant_name || "N/A"}</div>
+                        </div>
+                        <div class="data-card text-center">
+                          <div class="fw-semibold">Date</div>
+                          <div>${
+                            receipt.transaction_date
+                              ? new Date(
+                                  receipt.transaction_date
+                                ).toLocaleDateString()
+                              : "N/A"
+                          }</div>
+                        </div>
+                        <div class="data-card text-center">
+                          <div class="fw-semibold">Type</div>
+                          <div>${receipt.receipt_type || "N/A"}</div>
+                        </div>
+                        <div class="data-card text-center">
+                          <div class="fw-semibold">Country</div>
+                          <div>${receipt.country_region || "N/A"}</div>
+                        </div>
+                        <div class="data-card text-center">
+                          <div class="fw-semibold">Subtotal</div>
+                          <div>${
+                            receipt.subtotal
+                              ? `$${receipt.subtotal.toFixed(2)}`
+                              : "N/A"
+                          }</div>
+                        </div>
+                        <div class="data-card text-center">
+                          <div class="fw-semibold">Tax</div>
+                          <div>${
+                            receipt.tax_amount
+                              ? `$${receipt.tax_amount.toFixed(2)}`
+                              : "N/A"
+                          }</div>
+                        </div>
+                        <div class="data-card text-center">
+                          <div class="fw-semibold">Total</div>
+                          <div class="fs-5 text-success">${
+                            receipt.total
+                              ? `$${receipt.total.toFixed(2)}`
+                              : "N/A"
+                          }</div>
+                        </div>
+                        <div class="data-card text-center">
+                          <div class="fw-semibold">Confidence</div>
+                          <div>${
+                            receipt.confidence_score
+                              ? `<span class="badge bg-success">${(
+                                  receipt.confidence_score * 100
+                                ).toFixed(1)}%</span>`
+                              : "N/A"
+                          }</div>
+                        </div>
+                      </div>
+                      <div class="mt-3">
+                        <small class="text-muted">
+                          <strong>Receipt ID:</strong> ${receipt.id}
+                        </small>
+                      </div>
+                    </div>
+                  </div>
+                  ${
+                    receipt.items && receipt.items.length > 0
+                      ? `
+                  <div>
+                    <h6 class="mb-3">
+                      <i class="fas fa-list me-2 text-primary"></i>Items (${
+                        receipt.items.length
+                      })
+                    </h6>
+                    <div class="table-responsive">
+                      <table class="table table-striped">
+                        <thead class="table-primary">
+                          <tr>
+                            <th>Description</th>
+                            <th class="text-end">Quantity</th>
+                            <th class="text-end">Unit Price</th>
+                            <th class="text-end">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${receipt.items
+                            .map(
+                              (item) => `
+                            <tr>
+                              <td>${item.description || "Unknown"}</td>
+                              <td class="text-end">${item.quantity || 1}</td>
+                              <td class="text-end">$${(
+                                item.unit_price || 0
+                              ).toFixed(2)}</td>
+                              <td class="text-end">$${(
+                                item.total_price || 0
+                              ).toFixed(2)}</td>
+                            </tr>
+                          `
+                            )
+                            .join("")}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>`
+                      : ""
+                  }
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
         const existingModal = document.getElementById("receiptModal");
         if (existingModal) existingModal.remove();
         document.body.insertAdjacentHTML("beforeend", modalHtml);
@@ -565,21 +853,21 @@
             this.remove();
           });
       }
+
       async function deleteReceipt(receiptId) {
         if (!confirm("Are you sure you want to delete this receipt?")) return;
         try {
           const response = await fetch(`${API_URL}/documents/${receiptId}`, {
             method: "DELETE",
           });
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
+          if (!response.ok) throw new Error("Failed to delete receipt");
           showToast("Receipt deleted successfully", "success");
           loadReceipts();
         } catch (error) {
           showToast("Failed to delete receipt", "danger");
         }
       }
+
       function showSection(sectionId) {
         document.getElementById("uploadSection").style.display = "none";
         document.getElementById("previewSection").style.display = "none";
@@ -587,11 +875,13 @@
         document.getElementById("resultsSection").style.display = "none";
         document.getElementById(sectionId).style.display = "";
       }
+
       function resetUpload() {
         currentFile = null;
         document.getElementById("fileInput").value = "";
         showSection("uploadSection");
       }
+
       function showToast(message, type = "info") {
         const toastContainer = document.getElementById("toastContainer");
         const toastId = "toast-" + Date.now();
@@ -608,11 +898,11 @@
         toast.setAttribute("aria-live", "assertive");
         toast.setAttribute("aria-atomic", "true");
         toast.innerHTML = `
-                <div class="d-flex">
-                    <div class="toast-body">${message}</div>
-                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-                </div>
-            `;
+          <div class="d-flex">
+            <div class="toast-body">${message}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+          </div>
+        `;
         toastContainer.appendChild(toast);
         const bsToast = new bootstrap.Toast(toast, { delay: 4000 });
         bsToast.show();
@@ -620,9 +910,8 @@
           toast.remove();
         });
       }
-    </script>
-    <!-- Camera Modal -->
-    <script>
+
+      // Camera Modal Script
       let cameraStream = null;
       let cameraModal = null;
       function openCameraModal() {
@@ -631,25 +920,26 @@
         cameraModal.id = "cameraModal";
         cameraModal.tabIndex = -1;
         cameraModal.innerHTML = `
-                <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title"><i class="fas fa-camera me-2"></i>Take Photo</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                        </div>
-                        <div class="modal-body text-center">
-                            <video id="cameraVideo" autoplay playsinline class="w-100 rounded mb-3" style="background: #000; max-height: 300px;"></video>
-                            <div class="d-flex justify-content-center gap-2">
-                                <button id="captureBtn" class="btn btn-primary"><i class="fas fa-camera me-2"></i>Capture</button>
-                                <button id="closeCameraBtn" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                            </div>
-                        </div>
-                    </div>
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-camera me-2"></i>Take Photo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body text-center">
+                <video id="cameraVideo" autoplay playsinline class="w-100 rounded mb-3" style="background: #000; max-height: 300px;"></video>
+                <div class="d-flex justify-content-center gap-2">
+                  <button id="captureBtn" class="btn btn-primary"><i class="fas fa-camera me-2"></i>Capture</button>
+                  <button id="closeCameraBtn" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 </div>
-            `;
+              </div>
+            </div>
+          </div>
+        `;
         document.body.appendChild(cameraModal);
         const modal = new bootstrap.Modal(cameraModal);
         modal.show();
+
         navigator.mediaDevices
           .getUserMedia({ video: { facingMode: "environment" } })
           .then((stream) => {
@@ -660,6 +950,7 @@
             showToast("Unable to access camera", "danger");
             closeCameraModal();
           });
+
         document.getElementById("closeCameraBtn").onclick = closeCameraModal;
         document.getElementById("captureBtn").onclick = capturePhoto;
         cameraModal.addEventListener("hidden.bs.modal", closeCameraModal);
@@ -670,16 +961,10 @@
           cameraStream = null;
         }
         if (cameraModal) {
-          // Properly dismiss the Bootstrap modal first
           const modal = bootstrap.Modal.getInstance(cameraModal);
-          if (modal) {
-            modal.hide();
-          }
-          // Remove the modal element after it's hidden
+          if (modal) modal.hide();
           cameraModal.addEventListener("hidden.bs.modal", function () {
-            if (cameraModal && cameraModal.parentNode) {
-              cameraModal.remove();
-            }
+            if (cameraModal && cameraModal.parentNode) cameraModal.remove();
             cameraModal = null;
           });
         }

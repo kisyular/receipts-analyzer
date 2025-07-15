@@ -98,6 +98,10 @@ class Receipt(Base):
     merchant_name = Column(String)
     transaction_date = Column(DateTime)
     total = Column(Float)
+    subtotal = Column(Float)  # New field
+    tax_amount = Column(Float)  # New field
+    receipt_type = Column(String)  # Receipt type (Meal, Gas, etc.)
+    country_region = Column(String)  # Country/region where receipt was issued
     confidence_score = Column(Float)
     raw_data = Column(Text)  # Store full Azure response as JSON
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -116,24 +120,34 @@ class ReceiptItem(Base):
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
-# Check if image_path column exists, if not add it (for existing databases)
+# Check if new columns exist, if not add them (for existing databases)
 def migrate_database():
-    """Add image_path column to existing receipts table if it doesn't exist"""
+    """Add new columns to existing receipts table if they don't exist"""
     try:
         with engine.connect() as conn:
-            # Check if image_path column exists (PostgreSQL)
-            result = conn.execute(text("""
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = 'receipts' AND column_name = 'image_path'
-            """))
+            # Get existing columns
+            result = conn.execute(text("PRAGMA table_info(receipts)"))
+            existing_columns = [row[1] for row in result.fetchall()]
             
-            if not result.fetchone():
-                conn.execute(text("ALTER TABLE receipts ADD COLUMN image_path TEXT"))
-                conn.commit()
-                logger.info("Added image_path column to receipts table")
-            else:
-                logger.info("image_path column already exists")
+            # Define new columns to add
+            new_columns = [
+                ("image_path", "TEXT"),
+                ("subtotal", "REAL"),
+                ("tax_amount", "REAL"),
+                ("receipt_type", "TEXT"),
+                ("country_region", "TEXT")
+            ]
+            
+            # Add missing columns
+            for column_name, column_type in new_columns:
+                if column_name not in existing_columns:
+                    conn.execute(text(f"ALTER TABLE receipts ADD COLUMN {column_name} {column_type}"))
+                    logger.info(f"Added {column_name} column to receipts table")
+                else:
+                    logger.info(f"{column_name} column already exists")
+            
+            conn.commit()
+            
     except Exception as e:
         logger.warning(f"Database migration check failed: {e}")
 
@@ -155,6 +169,10 @@ class ReceiptResponse(BaseModel):
     merchant_name: Optional[str] = None
     transaction_date: Optional[datetime] = None
     total: Optional[float] = None
+    subtotal: Optional[float] = None
+    tax_amount: Optional[float] = None
+    receipt_type: Optional[str] = None
+    country_region: Optional[str] = None
     confidence_score: Optional[float] = None
     items: List[ReceiptItemResponse] = []
     created_at: datetime
@@ -265,9 +283,21 @@ def extract_receipt_data(receipt_doc):
         "merchant_name": None,
         "transaction_date": None,
         "total": None,
+        "subtotal": None,
+        "tax_amount": None,
+        "receipt_type": None,
+        "country_region": None,
         "items": [],
         "confidence_scores": []
     }
+    
+    # Debug: Log available fields
+    logger.info(f"Available fields: {list(receipt_doc.fields.keys())}")
+    
+    # Debug: Log all field names to check for payment-related fields
+    all_field_names = list(receipt_doc.fields.keys())
+    payment_related_fields = [field for field in all_field_names if 'payment' in field.lower() or 'pay' in field.lower()]
+    logger.info(f"Payment-related fields found: {payment_related_fields}")
     
     # Extract basic fields
     if receipt_doc.fields.get("MerchantName"):
@@ -283,6 +313,38 @@ def extract_receipt_data(receipt_doc):
         if getattr(total_field, "value_currency", None) and getattr(total_field.value_currency, "amount", None) is not None:
             data["total"] = total_field.value_currency.amount
             data["confidence_scores"].append(total_field.confidence)
+    
+    # Extract new fields with fallback names
+    # Subtotal - try multiple possible field names
+    subtotal_field = None
+    for field_name in ["Subtotal", "SubTotal", "subtotal"]:
+        if receipt_doc.fields.get(field_name):
+            subtotal_field = receipt_doc.fields[field_name]
+            break
+    
+    if subtotal_field and getattr(subtotal_field, "value_currency", None) and getattr(subtotal_field.value_currency, "amount", None) is not None:
+        data["subtotal"] = subtotal_field.value_currency.amount
+        data["confidence_scores"].append(subtotal_field.confidence)
+    
+    # Tax - try multiple possible field names
+    tax_field = None
+    for field_name in ["TotalTax", "Tax", "SalesTax", "TaxAmount", "tax"]:
+        if receipt_doc.fields.get(field_name):
+            tax_field = receipt_doc.fields[field_name]
+            break
+    
+    if tax_field and getattr(tax_field, "value_currency", None) and getattr(tax_field.value_currency, "amount", None) is not None:
+        data["tax_amount"] = tax_field.value_currency.amount
+        data["confidence_scores"].append(tax_field.confidence)
+    
+    # Extract receipt type and country region
+    if receipt_doc.fields.get("ReceiptType"):
+        data["receipt_type"] = receipt_doc.fields["ReceiptType"].value_string
+        data["confidence_scores"].append(receipt_doc.fields["ReceiptType"].confidence)
+    
+    if receipt_doc.fields.get("CountryRegion"):
+        data["country_region"] = receipt_doc.fields["CountryRegion"].value_country_region
+        data["confidence_scores"].append(receipt_doc.fields["CountryRegion"].confidence)
     
     # Extract items
     if receipt_doc.fields.get("Items"):
@@ -304,6 +366,9 @@ def extract_receipt_data(receipt_doc):
     
     # Calculate average confidence
     data["confidence_score"] = sum(data["confidence_scores"]) / len(data["confidence_scores"]) if data["confidence_scores"] else 0
+    
+    # Debug: Log extracted values
+    logger.info(f"Extracted data: {data}")
     
     return data
 
@@ -393,6 +458,10 @@ async def upload_document(
             merchant_name=receipt_data["merchant_name"],
             transaction_date=receipt_data["transaction_date"],
             total=receipt_data["total"],
+            subtotal=receipt_data["subtotal"],
+            tax_amount=receipt_data["tax_amount"],
+            receipt_type=receipt_data["receipt_type"],
+            country_region=receipt_data["country_region"],
             confidence_score=receipt_data["confidence_score"],
             raw_data=str(receipts.documents[0].__dict__)
         )
@@ -427,6 +496,10 @@ async def upload_document(
             merchant_name=receipt.merchant_name,
             transaction_date=receipt.transaction_date,
             total=receipt.total,
+            subtotal=receipt.subtotal,
+            tax_amount=receipt.tax_amount,
+            receipt_type=receipt.receipt_type,
+            country_region=receipt.country_region,
             confidence_score=receipt.confidence_score,
             items=[ReceiptItemResponse(
                 description=item.description,
@@ -511,6 +584,10 @@ async def read_document(
         merchant_name=receipt.merchant_name,
         transaction_date=receipt.transaction_date,
         total=receipt.total,
+        subtotal=receipt.subtotal,
+        tax_amount=receipt.tax_amount,
+        receipt_type=receipt.receipt_type,
+        country_region=receipt.country_region,
         confidence_score=receipt.confidence_score,
         items=[ReceiptItemResponse(
             description=item.description,
@@ -556,6 +633,10 @@ async def view_documents(
             merchant_name=receipt.merchant_name,
             transaction_date=receipt.transaction_date,
             total=receipt.total,
+            subtotal=receipt.subtotal,
+            tax_amount=receipt.tax_amount,
+            receipt_type=receipt.receipt_type,
+            country_region=receipt.country_region,
             confidence_score=receipt.confidence_score,
             items=[ReceiptItemResponse(
                 description=item.description,
