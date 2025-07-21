@@ -658,6 +658,20 @@ async def get_analytics_dashboard():
             detail="Failed to generate analytics dashboard"
         )
 
+
+@app.get("/analytics/drop_db")
+async def drop_database():
+    '''Drop the entire database'''
+    try:
+        await mongodb_client.drop_database(database_name)
+        return {"message": f"Database '{database_name}' dropped successfully"}
+    except Exception as e:
+        logger.error(f"Failed to drop database: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to drop database: {str(e)}"
+        )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)
