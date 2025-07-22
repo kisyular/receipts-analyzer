@@ -481,7 +481,10 @@
         const date = data.transaction_date
           ? new Date(data.transaction_date).toLocaleDateString()
           : "N/A";
-        const total = data.total ? `$${data.total.toFixed(2)}` : "N/A";
+        // Use total if it exists and is not 0, otherwise use subtotal
+        const effectiveTotal =
+          data.total && data.total > 0 ? data.total : data.subtotal || 0;
+        const total = `$${effectiveTotal.toFixed(2)}`;
         const subtotal = data.subtotal ? `$${data.subtotal.toFixed(2)}` : "N/A";
         const taxAmount = data.tax_amount
           ? `$${data.tax_amount.toFixed(2)}`
@@ -588,8 +591,10 @@
                             item.total_price || 0
                           ).toFixed(2)}</strong></td>
                           <td class="text-end">${
-                            item.has_discount 
-                              ? `<span class="text-success">-$${(item.discount_amount || 0).toFixed(2)}</span>`
+                            item.has_discount
+                              ? `<span class="text-success">-$${(
+                                  item.discount_amount || 0
+                                ).toFixed(2)}</span>`
                               : '<span class="text-muted">-</span>'
                           }</td>
                         </tr>
@@ -651,9 +656,12 @@
             const date = receipt.transaction_date
               ? new Date(receipt.transaction_date).toLocaleDateString()
               : "Unknown Date";
-            const total = receipt.total
-              ? `$${receipt.total.toFixed(2)}`
-              : "$0.00";
+            // Use total if it exists and is not 0, otherwise use subtotal
+            const effectiveTotal =
+              receipt.total && receipt.total > 0
+                ? receipt.total
+                : receipt.subtotal || 0;
+            const total = `$${effectiveTotal.toFixed(2)}`;
             const confidence = receipt.confidence_score
               ? (receipt.confidence_score * 100).toFixed(1)
               : "N/A";
@@ -778,8 +786,10 @@
                         <div class="data-card text-center">
                           <div class="fw-semibold">Total</div>
                           <div class="fs-5 text-success">${
-                            receipt.total
+                            receipt.total && receipt.total > 0
                               ? `$${receipt.total.toFixed(2)}`
+                              : receipt.subtotal
+                              ? `$${receipt.subtotal.toFixed(2)}`
                               : "N/A"
                           }</div>
                         </div>
@@ -835,8 +845,10 @@
                                 item.total_price || 0
                               ).toFixed(2)}</td>
                               <td class="text-end">${
-                                item.has_discount 
-                                  ? `<span class="text-success">-$${(item.discount_amount || 0).toFixed(2)}</span>`
+                                item.has_discount
+                                  ? `<span class="text-success">-$${(
+                                      item.discount_amount || 0
+                                    ).toFixed(2)}</span>`
                                   : '<span class="text-muted">-</span>'
                               }</td>
                             </tr>

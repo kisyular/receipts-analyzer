@@ -123,10 +123,24 @@ async def get_spending_summary() -> SpendingSummary:
     """Get overall spending summary"""
     try:
         pipeline = [
-            {"$match": {"total": {"$exists": True, "$ne": None}}},
+            {"$match": {
+                "$or": [
+                    {"total": {"$exists": True, "$ne": None}},
+                    {"subtotal": {"$exists": True, "$ne": None}}
+                ]
+            }},
+            {"$addFields": {
+                "effective_total": {
+                    "$cond": {
+                        "if": {"$and": [{"$ne": ["$total", None]}, {"$ne": ["$total", 0]}]},
+                        "then": "$total",
+                        "else": "$subtotal"
+                    }
+                }
+            }},
             {"$group": {
                 "_id": None,
-                "total_spent": {"$sum": "$total"},
+                "total_spent": {"$sum": "$effective_total"},
                 "total_receipts": {"$sum": 1},
                 "total_tax": {"$sum": {"$ifNull": ["$tax_amount", 0]}}
             }}
@@ -161,10 +175,13 @@ async def get_spending_summary() -> SpendingSummary:
 async def get_monthly_spending() -> List[MonthlySpending]:
     """Get spending by month - CosmosDB compatible version"""
     try:
-        # Get all receipts with transaction dates and totals
+        # Get all receipts with transaction dates and totals/subtotals
         receipts = await receipts_collection.find({
             "transaction_date": {"$exists": True, "$ne": None},
-            "total": {"$exists": True, "$ne": None}
+            "$or": [
+                {"total": {"$exists": True, "$ne": None}},
+                {"subtotal": {"$exists": True, "$ne": None}}
+            ]
         }).to_list(None)
         
         # Group by month and year manually
@@ -172,7 +189,8 @@ async def get_monthly_spending() -> List[MonthlySpending]:
         
         for receipt in receipts:
             transaction_date = receipt.get("transaction_date")
-            total = receipt.get("total", 0) or 0
+            # Use total if available, otherwise use subtotal
+            total = receipt.get("total", 0) or receipt.get("subtotal", 0) or 0
             tax_amount = receipt.get("tax_amount", 0) or 0
             
             if transaction_date:
@@ -234,10 +252,25 @@ async def get_receipt_type_analysis() -> List[ReceiptTypeAnalysis]:
     """Get spending analysis by receipt type"""
     try:
         pipeline = [
-            {"$match": {"receipt_type": {"$exists": True}, "total": {"$exists": True}}},
+            {"$match": {
+                "receipt_type": {"$exists": True},
+                "$or": [
+                    {"total": {"$exists": True, "$ne": None}},
+                    {"subtotal": {"$exists": True, "$ne": None}}
+                ]
+            }},
+            {"$addFields": {
+                "effective_total": {
+                    "$cond": {
+                        "if": {"$and": [{"$ne": ["$total", None]}, {"$ne": ["$total", 0]}]},
+                        "then": "$total",
+                        "else": "$subtotal"
+                    }
+                }
+            }},
             {"$group": {
                 "_id": "$receipt_type",
-                "total_spent": {"$sum": "$total"},
+                "total_spent": {"$sum": "$effective_total"},
                 "receipt_count": {"$sum": 1}
             }},
             {"$sort": {"total_spent": -1}}
@@ -271,13 +304,17 @@ async def get_top_merchants() -> List[dict]:
     try:
         receipts = await receipts_collection.find({
             "merchant_name": {"$exists": True, "$ne": None},
-            "total": {"$exists": True, "$ne": None}
+            "$or": [
+                {"total": {"$exists": True, "$ne": None}},
+                {"subtotal": {"$exists": True, "$ne": None}}
+            ]
         }).to_list(None)
         
         merchant_groups = {}
         for receipt in receipts:
             merchant = receipt.get("merchant_name", "Unknown")
-            total = receipt.get("total", 0) or 0
+            # Use total if available, otherwise use subtotal
+            total = receipt.get("total", 0) or receipt.get("subtotal", 0) or 0
             
             if merchant not in merchant_groups:
                 merchant_groups[merchant] = {
@@ -332,7 +369,10 @@ async def get_discount_analysis() -> dict:
             "_id": {"$in": receipt_ids_with_discounts}
         }).to_list(None)
         
-        total_spent_with_discounts = sum(receipt.get("total", 0) or 0 for receipt in receipts_with_discounts)
+        total_spent_with_discounts = sum(
+            receipt.get("total", 0) or receipt.get("subtotal", 0) or 0 
+            for receipt in receipts_with_discounts
+        )
         
         return {
             "total_discount_amount": total_discount,
@@ -360,10 +400,12 @@ async def get_recent_activity() -> List[dict]:
         
         recent_activity = []
         for receipt in receipts:
+            # Use total if available, otherwise use subtotal
+            effective_total = receipt.get("total", 0) or receipt.get("subtotal", 0) or 0
             recent_activity.append({
                 "id": receipt["_id"],
                 "merchant_name": receipt.get("merchant_name", "Unknown"),
-                "total": receipt.get("total", 0),
+                "total": effective_total,
                 "transaction_date": receipt.get("transaction_date"),
                 "created_at": receipt["created_at"],
                 "receipt_type": receipt.get("receipt_type", "Unknown")
