@@ -190,11 +190,69 @@
           <div class="col-lg-4">
             <div class="analytics-card p-4">
               <h5 class="mb-3">
-                <i class="fas fa-chart-pie me-2 text-primary"></i>
+                <i class="fas fa-chart-bar me-2 text-primary"></i>
                 Spending by Receipt Type
               </h5>
               <div class="chart-container">
                 <canvas id="receiptTypeChart"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Additional Analytics Row -->
+        <div class="row mb-4">
+          <div class="col-lg-6">
+            <div class="analytics-card p-4">
+              <h5 class="mb-3">
+                <i class="fas fa-store me-2 text-primary"></i>
+                Top Merchants by Spending
+              </h5>
+              <div id="topMerchantsList" class="list-group list-group-flush">
+                <!-- Top merchants will be populated here -->
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-6">
+            <div class="analytics-card p-4">
+              <h5 class="mb-3">
+                <i class="fas fa-tags me-2 text-primary"></i>
+                Discount Analysis
+              </h5>
+              <div class="row text-center">
+                <div class="col-6">
+                  <div class="metric-card" style="background: linear-gradient(135deg, #10b981, #059669);">
+                    <div class="metric-value" id="totalDiscount">$0</div>
+                    <div class="metric-label">Total Savings</div>
+                  </div>
+                </div>
+                <div class="col-6">
+                  <div class="metric-card" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                    <div class="metric-value" id="discountPercentage">0%</div>
+                    <div class="metric-label">Items with Discount</div>
+                  </div>
+                </div>
+              </div>
+              <div class="mt-3">
+                <small class="text-muted">
+                  <i class="fas fa-info-circle me-1"></i>
+                  <span id="discountDetails">No discounts found</span>
+                </small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Activity Row -->
+        <div class="row mb-4">
+          <div class="col-12">
+            <div class="analytics-card p-4">
+              <h5 class="mb-3">
+                <i class="fas fa-clock me-2 text-primary"></i>
+                Recent Activity
+              </h5>
+              <div id="recentActivityList" class="list-group list-group-flush">
+                <!-- Recent activity will be populated here -->
               </div>
             </div>
           </div>
@@ -257,7 +315,90 @@
         createMonthlyChart(data.monthly_spending);
         createReceiptTypeChart(data.receipt_types);
 
+        // Populate new analytics sections
+        populateTopMerchants(data.top_merchants);
+        populateDiscountAnalysis(data.discount_analysis);
+        populateRecentActivity(data.recent_activity);
+
         showDashboard();
+      }
+
+      function populateTopMerchants(merchants) {
+        const container = document.getElementById("topMerchantsList");
+        if (!merchants || merchants.length === 0) {
+          container.innerHTML = '<div class="text-center text-muted py-3">No merchant data available</div>';
+          return;
+        }
+
+        container.innerHTML = merchants.map((merchant, index) => `
+          <div class="list-group-item d-flex justify-content-between align-items-center border-0 px-0">
+            <div class="d-flex align-items-center">
+              <span class="badge bg-primary me-3">${index + 1}</span>
+              <div>
+                <h6 class="mb-1">${merchant.merchant_name}</h6>
+                <small class="text-muted">${merchant.receipt_count} receipt${merchant.receipt_count !== 1 ? 's' : ''}</small>
+              </div>
+            </div>
+            <div class="text-end">
+              <div class="fw-bold">$${merchant.total_spent.toFixed(2)}</div>
+              <small class="text-muted">Avg: $${merchant.average_spent.toFixed(2)}</small>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      function populateDiscountAnalysis(discountData) {
+        document.getElementById("totalDiscount").textContent = `$${discountData.total_discount_amount.toFixed(2)}`;
+        document.getElementById("discountPercentage").textContent = `${discountData.discount_percentage.toFixed(1)}%`;
+        
+        const detailsElement = document.getElementById("discountDetails");
+        if (discountData.total_items_with_discount > 0) {
+          detailsElement.textContent = `${discountData.total_items_with_discount} items saved an average of $${discountData.average_discount_per_item.toFixed(2)} each`;
+        } else {
+          detailsElement.textContent = "No discounts found in your receipts";
+        }
+      }
+
+      function populateRecentActivity(activities) {
+        const container = document.getElementById("recentActivityList");
+        if (!activities || activities.length === 0) {
+          container.innerHTML = '<div class="text-center text-muted py-3">No recent activity</div>';
+          return;
+        }
+
+        container.innerHTML = activities.map(activity => {
+          const date = activity.transaction_date ? new Date(activity.transaction_date).toLocaleDateString() : 'Unknown';
+          const timeAgo = getTimeAgo(new Date(activity.created_at));
+          
+          return `
+            <div class="list-group-item d-flex justify-content-between align-items-center border-0 px-0">
+              <div class="d-flex align-items-center">
+                <div class="me-3">
+                  <i class="fas fa-receipt text-primary"></i>
+                </div>
+                <div>
+                  <h6 class="mb-1">${activity.merchant_name}</h6>
+                  <small class="text-muted">
+                    ${date} • ${activity.receipt_type} • ${timeAgo}
+                  </small>
+                </div>
+              </div>
+              <div class="text-end">
+                <div class="fw-bold">$${activity.total.toFixed(2)}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      function getTimeAgo(date) {
+        const now = new Date();
+        const diffInSeconds = Math.floor((now - date) / 1000);
+        
+        if (diffInSeconds < 60) return 'Just now';
+        if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+        if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+        return `${Math.floor(diffInSeconds / 86400)}d ago`;
       }
 
       function createMonthlyChart(monthlyData) {
@@ -341,15 +482,17 @@
         ];
 
         receiptTypeChart = new Chart(ctx, {
-          type: "doughnut",
+          type: "bar",
           data: {
             labels: labels,
             datasets: [
               {
+                label: "Total Spent",
                 data: data,
                 backgroundColor: colors.slice(0, data.length),
-                borderWidth: 2,
-                borderColor: "#ffffff",
+                borderColor: colors.slice(0, data.length),
+                borderWidth: 1,
+                borderRadius: 4,
               },
             ],
           },
@@ -358,7 +501,41 @@
             maintainAspectRatio: false,
             plugins: {
               legend: {
-                position: "bottom",
+                display: false,
+              },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    const item = receiptTypes[context.dataIndex];
+                    return [
+                      `Total Spent: $${item.total_spent.toFixed(2)}`,
+                      `Receipts: ${item.receipt_count}`,
+                      `Average: $${item.average_spent.toFixed(2)}`,
+                      `Percentage: ${item.percentage_of_total.toFixed(1)}%`
+                    ];
+                  }
+                }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  callback: function (value) {
+                    return "$" + value.toFixed(0);
+                  },
+                },
+                grid: {
+                  color: "rgba(0, 0, 0, 0.1)",
+                },
+              },
+              x: {
+                grid: {
+                  display: false,
+                },
+                ticks: {
+                  maxRotation: 45,
+                },
               },
             },
           },

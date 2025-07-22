@@ -266,6 +266,114 @@ async def get_receipt_type_analysis() -> List[ReceiptTypeAnalysis]:
         logger.error(f"Error in get_receipt_type_analysis: {str(e)}")
         return []
 
+async def get_top_merchants() -> List[dict]:
+    """Get top merchants by spending"""
+    try:
+        receipts = await receipts_collection.find({
+            "merchant_name": {"$exists": True, "$ne": None},
+            "total": {"$exists": True, "$ne": None}
+        }).to_list(None)
+        
+        merchant_groups = {}
+        for receipt in receipts:
+            merchant = receipt.get("merchant_name", "Unknown")
+            total = receipt.get("total", 0) or 0
+            
+            if merchant not in merchant_groups:
+                merchant_groups[merchant] = {
+                    "total_spent": 0,
+                    "receipt_count": 0,
+                    "last_transaction": None
+                }
+            
+            merchant_groups[merchant]["total_spent"] += total
+            merchant_groups[merchant]["receipt_count"] += 1
+            
+            # Track latest transaction
+            transaction_date = receipt.get("transaction_date")
+            if transaction_date and (merchant_groups[merchant]["last_transaction"] is None or 
+                                   transaction_date > merchant_groups[merchant]["last_transaction"]):
+                merchant_groups[merchant]["last_transaction"] = transaction_date
+        
+        # Convert to list and sort by total spent
+        top_merchants = []
+        for merchant, data in merchant_groups.items():
+            top_merchants.append({
+                "merchant_name": merchant,
+                "total_spent": data["total_spent"],
+                "receipt_count": data["receipt_count"],
+                "average_spent": data["total_spent"] / data["receipt_count"] if data["receipt_count"] > 0 else 0,
+                "last_transaction": data["last_transaction"]
+            })
+        
+        return sorted(top_merchants, key=lambda x: x["total_spent"], reverse=True)[:10]
+    except Exception as e:
+        logger.error(f"Error in get_top_merchants: {str(e)}")
+        return []
+
+async def get_discount_analysis() -> dict:
+    """Get discount analysis"""
+    try:
+        # Get all items with discount information
+        items = await receipt_items_collection.find({
+            "has_discount": True
+        }).to_list(None)
+        
+        total_discount = sum(item.get("discount_amount", 0) or 0 for item in items)
+        total_items_with_discount = len(items)
+        
+        # Get total items for percentage calculation
+        all_items = await receipt_items_collection.find({}).to_list(None)
+        total_items = len(all_items)
+        
+        # Get receipts with discounts
+        receipt_ids_with_discounts = list(set(item.get("receipt_id") for item in items))
+        receipts_with_discounts = await receipts_collection.find({
+            "_id": {"$in": receipt_ids_with_discounts}
+        }).to_list(None)
+        
+        total_spent_with_discounts = sum(receipt.get("total", 0) or 0 for receipt in receipts_with_discounts)
+        
+        return {
+            "total_discount_amount": total_discount,
+            "total_items_with_discount": total_items_with_discount,
+            "total_items": total_items,
+            "discount_percentage": (total_items_with_discount / total_items * 100) if total_items > 0 else 0,
+            "total_spent_with_discounts": total_spent_with_discounts,
+            "average_discount_per_item": total_discount / total_items_with_discount if total_items_with_discount > 0 else 0
+        }
+    except Exception as e:
+        logger.error(f"Error in get_discount_analysis: {str(e)}")
+        return {
+            "total_discount_amount": 0,
+            "total_items_with_discount": 0,
+            "total_items": 0,
+            "discount_percentage": 0,
+            "total_spent_with_discounts": 0,
+            "average_discount_per_item": 0
+        }
+
+async def get_recent_activity() -> List[dict]:
+    """Get recent receipt activity"""
+    try:
+        receipts = await receipts_collection.find({}).sort("created_at", -1).limit(5).to_list(None)
+        
+        recent_activity = []
+        for receipt in receipts:
+            recent_activity.append({
+                "id": receipt["_id"],
+                "merchant_name": receipt.get("merchant_name", "Unknown"),
+                "total": receipt.get("total", 0),
+                "transaction_date": receipt.get("transaction_date"),
+                "created_at": receipt["created_at"],
+                "receipt_type": receipt.get("receipt_type", "Unknown")
+            })
+        
+        return recent_activity
+    except Exception as e:
+        logger.error(f"Error in get_recent_activity: {str(e)}")
+        return []
+
 # Lifespan context manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -798,11 +906,17 @@ async def get_analytics_dashboard():
         summary = await get_spending_summary()
         monthly = await get_monthly_spending()
         receipt_types = await get_receipt_type_analysis()
+        top_merchants = await get_top_merchants()
+        discount_analysis = await get_discount_analysis()
+        recent_activity = await get_recent_activity()
         
         return {
             "summary": summary,
             "monthly_spending": monthly,
             "receipt_types": receipt_types,
+            "top_merchants": top_merchants,
+            "discount_analysis": discount_analysis,
+            "recent_activity": recent_activity,
             "generated_at": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
@@ -824,12 +938,22 @@ async def test_database():
         receipts_count = await receipts_collection.count_documents({})
         items_count = await receipt_items_collection.count_documents({})
         
+        # Test new analytics functions
+        top_merchants = await get_top_merchants()
+        discount_analysis = await get_discount_analysis()
+        recent_activity = await get_recent_activity()
+        
         return {
             "status": "connected",
             "database": database_name,
             "receipts_count": receipts_count,
             "items_count": items_count,
-            "collections": ["receipts", "receipt_items"]
+            "collections": ["receipts", "receipt_items"],
+            "new_analytics": {
+                "top_merchants_count": len(top_merchants),
+                "discount_analysis": discount_analysis,
+                "recent_activity_count": len(recent_activity)
+            }
         }
     except Exception as e:
         logger.error(f"Database test failed: {str(e)}")
