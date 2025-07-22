@@ -9,6 +9,9 @@ motor
 # Data validation and serialization
 pydantic
 
+# OpenAI integration for student encouragement
+openai
+
 # Optional: PostgreSQL support (uncomment if using PostgreSQL)
 psycopg2-binary
 

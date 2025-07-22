@@ -2,6 +2,11 @@
 FastAPI Receipt Analysis Application with MongoDB
 Core operations: Upload, Read, View, Delete receipts
 """
+# OpenAI Integration for Student Encouragement
+import os
+import asyncio
+from openai import OpenAI
+import time
 
 import os
 import uuid
@@ -63,6 +68,7 @@ else:
 database = mongodb_client[str(database_name)]
 receipts_collection = database.receipts
 receipt_items_collection = database.receipt_items
+encouragements_collection = database.encouragements
 
 # Azure Document Intelligence setup
 document_intelligence_client = DocumentIntelligenceClient(
@@ -979,6 +985,7 @@ async def test_database():
         # Test collections
         receipts_count = await receipts_collection.count_documents({})
         items_count = await receipt_items_collection.count_documents({})
+        encouragements_count = await encouragements_collection.count_documents({})
         
         # Test new analytics functions
         top_merchants = await get_top_merchants()
@@ -990,7 +997,8 @@ async def test_database():
             "database": database_name,
             "receipts_count": receipts_count,
             "items_count": items_count,
-            "collections": ["receipts", "receipt_items"],
+            "encouragements_count": encouragements_count,
+            "collections": ["receipts", "receipt_items", "encouragements"],
             "new_analytics": {
                 "top_merchants_count": len(top_merchants),
                 "discount_analysis": discount_analysis,
@@ -1016,6 +1024,279 @@ async def drop_database():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to drop database: {str(e)}"
         )
+
+
+
+# Get OpenAI API key from environment
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+async def get_student_encouragement(student_query: str = "I'm struggling with NLP"):
+    """Get funny encouragement for MSBA NLP students using OpenAI"""
+    try:
+        if not OPENAI_API_KEY:
+            return "Keep coding! You're doing great! 🚀 (OpenAI not configured)"
+        
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        
+        assistant = client.beta.assistants.create(
+                name="MSBA NLP Cheerleader",
+                instructions="""
+                        You are a hilarious and encouraging tutor for MSBA students preparing for the NLP exam on Thursday. 
+                        Every message must remind them: "The MSBA NLP exam is on Thursday"—no exceptions. 
+                        Every message must be short (under 15 words) and concise and joke about the exam on these topics:
+                        - Levenshtein distance
+                        - TF-IDF
+                        - RAG, BLEU, ROUGE, etc.
+                        - Transformers
+                        - Regex
+                        - Word embeddings
+                        - Word2Vec
+                        - GloVe
+                        - FastText
+                        - BERT
+                        - GPT-2
+                        - GPT-3
+                        You should be funny, sarcastic (but friendly), and highly relatable.
+
+                        Use emojis, puns Make each message feel like a meme in text form. 
+                        Keep it short (under 15 words), chaotic, and very human. Make it feel like a 
+                        group chat reminder from a funny friend who also codes.
+                        """,
+                            tools=[{"type": "code_interpreter"}],
+                            model="gpt-4-1106-preview"
+                )
+
+        
+        thread = client.beta.threads.create()
+        
+        # Create the user message
+        message = client.beta.threads.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=f"Give me funny encouragement for this MSBA NLP student situation: {student_query}"
+        )
+        
+        # Run the assistant
+        run = client.beta.threads.runs.create(
+            thread_id=thread.id,
+            assistant_id=assistant.id,
+        )
+        
+        # Check status with retry logic
+        max_retry = 5
+        sleep_time = 3  # seconds
+        retry = 0
+        
+        while retry <= max_retry:
+            run_status = client.beta.threads.runs.retrieve(
+                thread_id=thread.id,
+                run_id=run.id
+            )
+            
+            if run_status.status == 'completed':
+                break
+            elif run_status.status == 'failed':
+                return "Even AI has bad days! Keep pushing through! 💪"
+            
+            retry += 1
+            await asyncio.sleep(sleep_time)
+        
+        # Get the response
+        messages = client.beta.threads.messages.list(thread_id=thread.id, order='asc')
+        response_messages = [msg for msg in messages.data if msg.role == 'assistant']
+        
+        if response_messages:
+            latest_response = response_messages[-1]
+            if latest_response.content and len(latest_response.content) > 0:
+                content = latest_response.content[0]
+                # Safely extract text content
+                try:
+                    if hasattr(content, 'text') and hasattr(content.text, 'value'):
+                        return content.text.value
+                except:
+                    pass
+        
+        return "You're doing amazing! Keep that code flowing! ☕💻"
+        
+    except Exception as e:
+        return f"Even when tech fails, you're still awesome! Keep going! 🚀 (Error: {str(e)[:50]}...)"
+
+@app.get("/student-encouragement")
+async def get_encouragement(query: str = "I'm struggling with Levenshtein distance, or RAG, or BLEU, or ROUGE, or Word embeddings, or Word2Vec, or GloVe, or FastText, or BERT, or GPT-2, or GPT-3"):
+    """Get funny encouragement for MSBA NLP students"""
+    encouragement = await get_student_encouragement(query)
+    # Save the encouragement to the database
+    await encouragements_collection.insert_one({
+        "query": query,
+        "encouragement": encouragement,
+        "timestamp": datetime.now(timezone.utc)
+    })
+    return {
+        "encouragement": encouragement,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "for": "MSBA NLP Students"
+    }
+
+@app.get("/random-encouragement")
+async def get_random_encouragement():
+    """Get a random encouragement from the database"""
+    try:
+        # Get total count
+        total_count = await encouragements_collection.count_documents({})
+        
+        if total_count == 0:
+            return {
+                "encouragement": "The MSBA NLP exam is on Thursday! You got this! 💪☕",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "default"
+            }
+        
+        # Get a random encouragement using a more reliable method
+        import random
+        
+        # Get all encouragements and select one randomly
+        all_encouragements = await encouragements_collection.find({}).to_list(None)
+        
+        if all_encouragements:
+            random_encouragement = random.choice(all_encouragements)
+            return {
+                "encouragement": random_encouragement["encouragement"],
+                "query": random_encouragement.get("query", ""),
+                "timestamp": random_encouragement["timestamp"].isoformat(),
+                "source": "database",
+                "total_available": len(all_encouragements)
+            }
+        else:
+            return {
+                "encouragement": "The MSBA NLP exam is on Thursday! Keep coding! 🚀",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "fallback"
+            }
+    except Exception as e:
+        logger.error(f"Error getting random encouragement: {str(e)}")
+        return {
+            "encouragement": "The MSBA NLP exam is on Thursday! You're doing great! 💻",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": "error_fallback"
+        }
+
+@app.get("/test-encouragements")
+async def test_encouragements():
+    """Test endpoint to view all encouragements in the database"""
+    try:
+        # Get all encouragements
+        encouragements = await encouragements_collection.find({}).sort("timestamp", -1).to_list(None)
+        
+        # Format the data for display
+        formatted_encouragements = []
+        for enc in encouragements:
+            formatted_encouragements.append({
+                "id": str(enc["_id"]),
+                "query": enc.get("query", ""),
+                "encouragement": enc.get("encouragement", ""),
+                "timestamp": enc["timestamp"].isoformat() if enc.get("timestamp") else None,
+                "created_at": enc["timestamp"].isoformat() if enc.get("timestamp") else None
+            })
+        
+        return {
+            "total_count": len(formatted_encouragements),
+            "encouragements": formatted_encouragements,
+            "database_name": database_name,
+            "collection_name": "encouragements"
+        }
+    except Exception as e:
+        logger.error(f"Error testing encouragements: {str(e)}")
+        return {
+            "error": str(e),
+            "total_count": 0,
+            "encouragements": []
+        }
+
+@app.post("/test-add-encouragement")
+async def test_add_encouragement():
+    """Test endpoint to manually add a test encouragement"""
+    try:
+        test_encouragement = {
+            "query": "Test query for TF-IDF",
+            "encouragement": "The MSBA NLP exam is on Thursday! TF-IDF is just fancy word counting! 📊💻",
+            "timestamp": datetime.now(timezone.utc)
+        }
+        
+        result = await encouragements_collection.insert_one(test_encouragement)
+        
+        return {
+            "message": "Test encouragement added successfully",
+            "inserted_id": str(result.inserted_id),
+            "encouragement": test_encouragement
+        }
+    except Exception as e:
+        logger.error(f"Error adding test encouragement: {str(e)}")
+        return {
+            "error": str(e),
+            "message": "Failed to add test encouragement"
+        }
+
+@app.get("/test-clear-encouragements")
+async def test_clear_encouragements():
+    """Test endpoint to clear all encouragements from database"""
+    try:
+        result = await encouragements_collection.delete_many({})
+        
+        return {
+            "message": f"Cleared {result.deleted_count} encouragements from database",
+            "deleted_count": result.deleted_count
+        }
+    except Exception as e:
+        logger.error(f"Error clearing encouragements: {str(e)}")
+        return {
+            "error": str(e),
+            "message": "Failed to clear encouragements"
+        }
+
+@app.get("/test-random-selection")
+async def test_random_selection():
+    """Test endpoint to verify random selection is working"""
+    try:
+        # Get all encouragements first
+        all_encouragements = await encouragements_collection.find({}).to_list(None)
+        
+        if not all_encouragements:
+            return {
+                "message": "No encouragements in database",
+                "total_count": 0,
+                "samples": []
+            }
+        
+        # Generate 5 random samples
+        import random
+        samples = []
+        for i in range(5):
+            random_enc = random.choice(all_encouragements)
+            samples.append({
+                "sample": i + 1,
+                "id": str(random_enc["_id"]),
+                "encouragement": random_enc["encouragement"][:100] + "..." if len(random_enc["encouragement"]) > 100 else random_enc["encouragement"],
+                "query": random_enc.get("query", "")[:50] + "..." if len(random_enc.get("query", "")) > 50 else random_enc.get("query", "")
+            })
+        
+        # Check for duplicates
+        unique_ids = set(sample["id"] for sample in samples)
+        is_random = len(unique_ids) > 1
+        
+        return {
+            "message": "Random selection test completed",
+            "total_encouragements": len(all_encouragements),
+            "samples_generated": 5,
+            "unique_samples": len(unique_ids),
+            "is_random": is_random,
+            "samples": samples
+        }
+    except Exception as e:
+        logger.error(f"Error testing random selection: {str(e)}")
+        return {
+            "error": str(e),
+            "message": "Failed to test random selection"
+        }
 
 if __name__ == "__main__":
     import uvicorn
