@@ -75,6 +75,8 @@ class ReceiptItemResponse(BaseModel):
     quantity: Optional[float] = None
     unit_price: Optional[float] = None
     total_price: Optional[float] = None
+    has_discount: Optional[bool] = None
+    discount_amount: Optional[float] = None
 
 class ReceiptResponse(BaseModel):
     id: str
@@ -119,103 +121,150 @@ class ReceiptTypeAnalysis(BaseModel):
 # Analytics Functions
 async def get_spending_summary() -> SpendingSummary:
     """Get overall spending summary"""
-    pipeline = [
-        {"$match": {"total": {"$exists": True, "$ne": None}}},
-        {"$group": {
-            "_id": None,
-            "total_spent": {"$sum": "$total"},
-            "total_receipts": {"$sum": 1},
-            "total_tax": {"$sum": {"$ifNull": ["$tax_amount", 0]}}
-        }}
-    ]
-    
-    result = await receipts_collection.aggregate(pipeline).to_list(1)
-    if not result:
+    try:
+        pipeline = [
+            {"$match": {"total": {"$exists": True, "$ne": None}}},
+            {"$group": {
+                "_id": None,
+                "total_spent": {"$sum": "$total"},
+                "total_receipts": {"$sum": 1},
+                "total_tax": {"$sum": {"$ifNull": ["$tax_amount", 0]}}
+            }}
+        ]
+        
+        result = await receipts_collection.aggregate(pipeline).to_list(1)
+        if not result:
+            return SpendingSummary(
+                total_spent=0, total_receipts=0, average_per_receipt=0,
+                total_tax=0, tax_percentage=0
+            )
+        
+        data = result[0]
+        total_spent = data["total_spent"]
+        total_receipts = data["total_receipts"]
+        total_tax = data["total_tax"]
+        
+        return SpendingSummary(
+            total_spent=total_spent,
+            total_receipts=total_receipts,
+            average_per_receipt=total_spent / total_receipts if total_receipts > 0 else 0,
+            total_tax=total_tax,
+            tax_percentage=(total_tax / total_spent * 100) if total_spent > 0 else 0
+        )
+    except Exception as e:
+        logger.error(f"Error in get_spending_summary: {str(e)}")
         return SpendingSummary(
             total_spent=0, total_receipts=0, average_per_receipt=0,
             total_tax=0, tax_percentage=0
         )
-    
-    data = result[0]
-    total_spent = data["total_spent"]
-    total_receipts = data["total_receipts"]
-    total_tax = data["total_tax"]
-    
-    return SpendingSummary(
-        total_spent=total_spent,
-        total_receipts=total_receipts,
-        average_per_receipt=total_spent / total_receipts if total_receipts > 0 else 0,
-        total_tax=total_tax,
-        tax_percentage=(total_tax / total_spent * 100) if total_spent > 0 else 0
-    )
 
 async def get_monthly_spending() -> List[MonthlySpending]:
-    """Get spending by month"""
-    pipeline = [
-        {"$match": {"transaction_date": {"$exists": True}, "total": {"$exists": True}}},
-        {"$addFields": {
-            "year": {"$year": "$transaction_date"},
-            "month": {"$month": "$transaction_date"}
-        }},
-        {"$group": {
-            "_id": {"year": "$year", "month": "$month"},
-            "total_spent": {"$sum": "$total"},
-            "total_receipts": {"$sum": 1},
-            "total_tax": {"$sum": {"$ifNull": ["$tax_amount", 0]}}
-        }},
-        {"$sort": {"_id.year": 1, "_id.month": 1}}
-    ]
-    
-    results = await receipts_collection.aggregate(pipeline).to_list(None)
-    
-    monthly_data = []
-    for result in results:
-        month_val = result["_id"]["month"]
-        if isinstance(month_val, (list, tuple)):
-            # Defensive: flatten if somehow a sequence
-            month_val = month_val[0] if month_val else 1
-        month_name = calendar.month_name[month_val]
-        monthly_data.append(MonthlySpending(
-            month=str(month_name),
-            year=result["_id"]["year"],
-            total_spent=result["total_spent"],
-            total_receipts=result["total_receipts"],
-            total_tax=result["total_tax"]
-        ))
-    
-    return monthly_data
+    """Get spending by month - CosmosDB compatible version"""
+    try:
+        # Get all receipts with transaction dates and totals
+        receipts = await receipts_collection.find({
+            "transaction_date": {"$exists": True, "$ne": None},
+            "total": {"$exists": True, "$ne": None}
+        }).to_list(None)
+        
+        # Group by month and year manually
+        monthly_groups = {}
+        
+        for receipt in receipts:
+            transaction_date = receipt.get("transaction_date")
+            total = receipt.get("total", 0) or 0
+            tax_amount = receipt.get("tax_amount", 0) or 0
+            
+            if transaction_date:
+                # Extract year and month from datetime
+                if isinstance(transaction_date, datetime):
+                    year = transaction_date.year
+                    month = transaction_date.month
+                elif isinstance(transaction_date, str):
+                    # Parse string date
+                    try:
+                        dt = datetime.fromisoformat(transaction_date.replace('Z', '+00:00'))
+                        year = dt.year
+                        month = dt.month
+                    except:
+                        continue
+                else:
+                    continue
+                
+                key = f"{year}-{month:02d}"
+                
+                if key not in monthly_groups:
+                    monthly_groups[key] = {
+                        "year": year,
+                        "month": month,
+                        "total_spent": 0,
+                        "total_receipts": 0,
+                        "total_tax": 0
+                    }
+                
+                monthly_groups[key]["total_spent"] += total
+                monthly_groups[key]["total_receipts"] += 1
+                monthly_groups[key]["total_tax"] += tax_amount
+        
+        # Convert to MonthlySpending objects
+        monthly_data = []
+        for key in sorted(monthly_groups.keys()):
+            group = monthly_groups[key]
+            
+            # Validate year and month
+            if group["year"] is None or group["month"] is None:
+                continue
+                
+            month_name = calendar.month_name[group["month"]]
+            
+            monthly_data.append(MonthlySpending(
+                month=str(month_name),
+                year=int(group["year"]),
+                total_spent=float(group["total_spent"]),
+                total_receipts=int(group["total_receipts"]),
+                total_tax=float(group["total_tax"])
+            ))
+        
+        return monthly_data
+    except Exception as e:
+        logger.error(f"Error in get_monthly_spending: {str(e)}")
+        return []
 
 async def get_receipt_type_analysis() -> List[ReceiptTypeAnalysis]:
     """Get spending analysis by receipt type"""
-    pipeline = [
-        {"$match": {"receipt_type": {"$exists": True}, "total": {"$exists": True}}},
-        {"$group": {
-            "_id": "$receipt_type",
-            "total_spent": {"$sum": "$total"},
-            "receipt_count": {"$sum": 1}
-        }},
-        {"$sort": {"total_spent": -1}}
-    ]
-    
-    results = await receipts_collection.aggregate(pipeline).to_list(None)
-    
-    # Calculate total spending for percentage
-    total_spending = sum(r["total_spent"] for r in results)
-    
-    type_analysis = []
-    for result in results:
-        total_spent = result["total_spent"]
-        receipt_count = result["receipt_count"]
+    try:
+        pipeline = [
+            {"$match": {"receipt_type": {"$exists": True}, "total": {"$exists": True}}},
+            {"$group": {
+                "_id": "$receipt_type",
+                "total_spent": {"$sum": "$total"},
+                "receipt_count": {"$sum": 1}
+            }},
+            {"$sort": {"total_spent": -1}}
+        ]
         
-        type_analysis.append(ReceiptTypeAnalysis(
-            receipt_type=result["_id"] or "Unknown",
-            total_spent=total_spent,
-            receipt_count=receipt_count,
-            average_spent=total_spent / receipt_count if receipt_count > 0 else 0,
-            percentage_of_total=(total_spent / total_spending * 100) if total_spending > 0 else 0
-        ))
-    
-    return type_analysis
+        results = await receipts_collection.aggregate(pipeline).to_list(None)
+        
+        # Calculate total spending for percentage
+        total_spending = sum(r["total_spent"] for r in results)
+        
+        type_analysis = []
+        for result in results:
+            total_spent = result["total_spent"]
+            receipt_count = result["receipt_count"]
+            
+            type_analysis.append(ReceiptTypeAnalysis(
+                receipt_type=result["_id"] or "Unknown",
+                total_spent=total_spent,
+                receipt_count=receipt_count,
+                average_spent=total_spent / receipt_count if receipt_count > 0 else 0,
+                percentage_of_total=(total_spent / total_spending * 100) if total_spending > 0 else 0
+            ))
+        
+        return type_analysis
+    except Exception as e:
+        logger.error(f"Error in get_receipt_type_analysis: {str(e)}")
+        return []
 
 # Lifespan context manager
 @asynccontextmanager
@@ -285,6 +334,45 @@ def analyze_receipt(file_content: bytes):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to analyze receipt. Please try again with a clearer image."
         )
+
+def process_item_pricing(item_data: dict) -> dict:
+    """Process and validate item pricing, handle discounts and unit price calculations"""
+    processed_item = item_data.copy()
+    
+    # Get values with defaults
+    unit_price = processed_item.get("unit_price", 0)
+    total_price = processed_item.get("total_price", 0)
+    quantity = processed_item.get("quantity", 1)
+    
+    # Scenario 1: If unit price is 0.00 and quantity is 1, set unit price to total price
+    if (unit_price == 0 or unit_price is None) and quantity == 1 and total_price > 0:
+        processed_item["unit_price"] = total_price
+        processed_item["has_discount"] = False
+        processed_item["discount_amount"] = 0
+    
+    # Scenario 2: If unit price exists and is not 0, check for discount
+    elif unit_price and unit_price > 0 and total_price > 0:
+        expected_total = unit_price * quantity
+        if abs(expected_total - total_price) > 0.01:  # Allow for small rounding differences
+            discount_amount = expected_total - total_price
+            processed_item["has_discount"] = True
+            processed_item["discount_amount"] = discount_amount
+        else:
+            processed_item["has_discount"] = False
+            processed_item["discount_amount"] = 0
+    
+    # Scenario 3: If we have total price but no unit price, calculate unit price
+    elif total_price > 0 and quantity > 0 and (unit_price == 0 or unit_price is None):
+        calculated_unit_price = total_price / quantity
+        processed_item["unit_price"] = calculated_unit_price
+        processed_item["has_discount"] = False
+        processed_item["discount_amount"] = 0
+    
+    else:
+        processed_item["has_discount"] = False
+        processed_item["discount_amount"] = 0
+    
+    return processed_item
 
 def extract_receipt_data(receipt_doc):
     """Extract structured data from Azure response"""
@@ -356,15 +444,73 @@ def extract_receipt_data(receipt_doc):
                 item_data["description"] = item.value_object["Description"].value_string
             if item.value_object.get("Quantity"):
                 item_data["quantity"] = item.value_object["Quantity"].value_number
-            if item.value_object.get("Price"):
-                price_field = item.value_object["Price"]
-                if getattr(price_field, "value_currency", None) and getattr(price_field.value_currency, "amount", None) is not None:
-                    item_data["unit_price"] = price_field.value_currency.amount
-            if item.value_object.get("TotalPrice"):
-                total_price_field = item.value_object["TotalPrice"]
-                if getattr(total_price_field, "value_currency", None) and getattr(total_price_field.value_currency, "amount", None) is not None:
+            
+            # Extract unit price with multiple field name fallbacks
+            unit_price_field = None
+            for field_name in ["Price", "UnitPrice", "Unit_Price", "ItemPrice"]:
+                if item.value_object.get(field_name):
+                    unit_price_field = item.value_object[field_name]
+                    break
+            
+            if unit_price_field:
+                # Try different value types for unit price
+                if hasattr(unit_price_field, "value_currency") and getattr(unit_price_field.value_currency, "amount", None) is not None:
+                    item_data["unit_price"] = unit_price_field.value_currency.amount
+                elif hasattr(unit_price_field, "value_number") and unit_price_field.value_number is not None:
+                    item_data["unit_price"] = unit_price_field.value_number
+                elif hasattr(unit_price_field, "value_string") and unit_price_field.value_string:
+                    # Try to parse string as number
+                    try:
+                        item_data["unit_price"] = float(unit_price_field.value_string.replace("$", "").replace(",", ""))
+                    except (ValueError, AttributeError):
+                        pass
+            
+            # Extract total price with multiple field name fallbacks
+            total_price_field = None
+            for field_name in ["TotalPrice", "Total_Price", "ItemTotal", "LineTotal"]:
+                if item.value_object.get(field_name):
+                    total_price_field = item.value_object[field_name]
+                    break
+            
+            if total_price_field:
+                # Try different value types for total price
+                if hasattr(total_price_field, "value_currency") and getattr(total_price_field.value_currency, "amount", None) is not None:
                     item_data["total_price"] = total_price_field.value_currency.amount
-            data["items"].append(item_data)
+                elif hasattr(total_price_field, "value_number") and total_price_field.value_number is not None:
+                    item_data["total_price"] = total_price_field.value_number
+                elif hasattr(total_price_field, "value_string") and total_price_field.value_string:
+                    # Try to parse string as number
+                    try:
+                        item_data["total_price"] = float(total_price_field.value_string.replace("$", "").replace(",", ""))
+                    except (ValueError, AttributeError):
+                        pass
+            
+            # Look for discount fields from Azure Document Intelligence
+            discount_field = None
+            for field_name in ["Discount", "DiscountAmount", "ItemDiscount", "Discount_Amount"]:
+                if item.value_object.get(field_name):
+                    discount_field = item.value_object[field_name]
+                    break
+            
+            if discount_field:
+                # Try different value types for discount
+                if hasattr(discount_field, "value_currency") and getattr(discount_field.value_currency, "amount", None) is not None:
+                    item_data["discount_amount"] = discount_field.value_currency.amount
+                    item_data["has_discount"] = True
+                elif hasattr(discount_field, "value_number") and discount_field.value_number is not None:
+                    item_data["discount_amount"] = discount_field.value_number
+                    item_data["has_discount"] = True
+                elif hasattr(discount_field, "value_string") and discount_field.value_string:
+                    # Try to parse string as number
+                    try:
+                        item_data["discount_amount"] = float(discount_field.value_string.replace("$", "").replace(",", ""))
+                        item_data["has_discount"] = True
+                    except (ValueError, AttributeError):
+                        pass
+            
+            # Process the item pricing (handle unit price calculations and discount detection)
+            processed_item = process_item_pricing(item_data)
+            data["items"].append(processed_item)
     
     # Calculate average confidence
     data["confidence_score"] = sum(data["confidence_scores"]) / len(data["confidence_scores"]) if data["confidence_scores"] else 0
@@ -474,7 +620,9 @@ async def upload_document(file: UploadFile = File(...)):
                     "description": item.get("description"),
                     "quantity": item.get("quantity"),
                     "unit_price": item.get("unit_price"),
-                    "total_price": item.get("total_price")
+                    "total_price": item.get("total_price"),
+                    "has_discount": item.get("has_discount", False),
+                    "discount_amount": item.get("discount_amount", 0)
                 }
                 for item in receipt_data["items"]
             ]
@@ -504,7 +652,9 @@ async def upload_document(file: UploadFile = File(...)):
                 description=item.get("description"),
                 quantity=item.get("quantity"),
                 unit_price=item.get("unit_price"),
-                total_price=item.get("total_price")
+                total_price=item.get("total_price"),
+                has_discount=item.get("has_discount", False),
+                discount_amount=item.get("discount_amount", 0)
             ) for item in items],
             created_at=receipt_doc["created_at"]
         )
@@ -552,7 +702,9 @@ async def read_document(document_id: str):
             description=item.get("description"),
             quantity=item.get("quantity"),
             unit_price=item.get("unit_price"),
-            total_price=item.get("total_price")
+            total_price=item.get("total_price"),
+            has_discount=item.get("has_discount", False),
+            discount_amount=item.get("discount_amount", 0)
         ) for item in items],
         created_at=receipt["created_at"]
     )
@@ -589,7 +741,9 @@ async def view_documents(skip: int = 0, limit: int = 100):
                 description=item.get("description"),
                 quantity=item.get("quantity"),
                 unit_price=item.get("unit_price"),
-                total_price=item.get("total_price")
+                total_price=item.get("total_price"),
+                has_discount=item.get("has_discount", False),
+                discount_amount=item.get("discount_amount", 0)
             ) for item in items],
             created_at=receipt["created_at"]
         ))
@@ -658,6 +812,31 @@ async def get_analytics_dashboard():
             detail="Failed to generate analytics dashboard"
         )
 
+
+@app.get("/analytics/test_db")
+async def test_database():
+    '''Test database connection and collections'''
+    try:
+        # Test database connection
+        await mongodb_client.admin.command('ping')
+        
+        # Test collections
+        receipts_count = await receipts_collection.count_documents({})
+        items_count = await receipt_items_collection.count_documents({})
+        
+        return {
+            "status": "connected",
+            "database": database_name,
+            "receipts_count": receipts_count,
+            "items_count": items_count,
+            "collections": ["receipts", "receipt_items"]
+        }
+    except Exception as e:
+        logger.error(f"Database test failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database test failed: {str(e)}"
+        )
 
 @app.get("/analytics/drop_db")
 async def drop_database():
